@@ -1,0 +1,247 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+  --bg: #f4f4f1;
+  --card: #ffffff;
+  --card-2: #f8f8f6;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #7d7b75;
+  --line: #e6e5df;
+  --line-2: #d6d5ce;
+  --grid: #ecebe6;
+  --axis: #c3c2b7;
+  --hover: rgba(11, 11, 11, 0.045);
+  --ring: rgba(11, 11, 11, 0.08);
+
+  --accent: #5046e5;
+  --accent-hover: #4038cc;
+  --accent-soft: #ecebfd;
+  --accent-ink: #3f36c9;
+  --on-accent: #ffffff;
+
+  /* Paleta categórica validada (orden fijo, apta para daltonismo en pares adyacentes) */
+  --s0: #2a78d6;
+  --s1: #eb6834;
+  --s2: #1baf7a;
+  --s3: #eda100;
+  --s4: #e87ba4;
+  --s5: #008300;
+  --s6: #4a3aa7;
+  --s7: #e34948;
+  --s-none: #a9a8a1;
+
+  /* Escala secuencial (azul) para mapas de calor */
+  --h0: #eeede8;
+  --h1: #cde2fb;
+  --h2: #86b6ef;
+  --h3: #3987e5;
+  --h4: #1c5cab;
+
+  /* Estados */
+  --good: #0ca30c;
+  --good-ink: #006300;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --critical-ink: #b42323;
+  --good-soft: #e6f5e6;
+  --warning-soft: #fdf3dc;
+  --critical-soft: #fbe9e9;
+}
+
+.dark {
+  color-scheme: dark;
+  --bg: #0e0e0d;
+  --card: #1a1a19;
+  --card-2: #212120;
+  --ink: #ffffff;
+  --ink-2: #c3c2b7;
+  --muted: #8f8d86;
+  --line: #2c2c2a;
+  --line-2: #3a3a37;
+  --grid: #262624;
+  --axis: #383835;
+  --hover: rgba(255, 255, 255, 0.06);
+  --ring: rgba(255, 255, 255, 0.1);
+
+  --accent: #8b84f7;
+  --accent-hover: #a29cf9;
+  --accent-soft: #26244a;
+  --accent-ink: #b3aefa;
+  --on-accent: #0e0e0d;
+
+  --s0: #3987e5;
+  --s1: #d95926;
+  --s2: #199e70;
+  --s3: #c98500;
+  --s4: #d55181;
+  --s5: #008300;
+  --s6: #9085e9;
+  --s7: #e66767;
+  --s-none: #6b6a65;
+
+  --h0: #242422;
+  --h1: #104281;
+  --h2: #256abf;
+  --h3: #3987e5;
+  --h4: #86b6ef;
+
+  --good-ink: #2fc02f;
+  --critical-ink: #f07a7a;
+  --good-soft: #13280f;
+  --warning-soft: #2e2511;
+  --critical-soft: #331616;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-card: var(--card);
+  --color-card-2: var(--card-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-hover: var(--hover);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
+  --color-on-accent: var(--on-accent);
+  --color-good: var(--good);
+  --color-good-ink: var(--good-ink);
+  --color-good-soft: var(--good-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-serious: var(--serious);
+  --color-critical: var(--critical);
+  --color-critical-ink: var(--critical-ink);
+  --color-critical-soft: var(--critical-soft);
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Barras de desplazamiento discretas */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+input[type='date'],
+input[type='time'],
+input[type='datetime-local'] {
+  min-height: 2.25rem;
+}
+
+input[type='color'] {
+  padding: 0;
+}
+
+/* Contenido de notas en markdown */
+.prose-note h1 {
+  font-size: 1.35rem;
+  font-weight: 650;
+  margin: 0.6em 0 0.4em;
+}
+.prose-note h2 {
+  font-size: 1.15rem;
+  font-weight: 650;
+  margin: 0.6em 0 0.35em;
+}
+.prose-note h3 {
+  font-size: 1rem;
+  font-weight: 650;
+  margin: 0.5em 0 0.3em;
+}
+.prose-note p {
+  margin: 0.45em 0;
+}
+.prose-note ul,
+.prose-note ol {
+  margin: 0.4em 0;
+  padding-left: 1.4em;
+}
+.prose-note ul {
+  list-style: disc;
+}
+.prose-note ol {
+  list-style: decimal;
+}
+.prose-note li.task {
+  list-style: none;
+  margin-left: -1.3em;
+}
+.prose-note code {
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 0.3em;
+  font-size: 0.9em;
+}
+.prose-note pre {
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.7em 0.9em;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.prose-note pre code {
+  border: 0;
+  padding: 0;
+  background: none;
+}
+.prose-note blockquote {
+  border-left: 3px solid var(--line-2);
+  padding-left: 0.8em;
+  color: var(--ink-2);
+  margin: 0.5em 0;
+}
+.prose-note a {
+  color: var(--accent-ink);
+  text-decoration: underline;
+}
+.prose-note hr {
+  border-color: var(--line);
+  margin: 0.8em 0;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-pop {
+  animation: pop-in 0.16s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pop {
+    animation: none;
+  }
+}
