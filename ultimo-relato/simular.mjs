@@ -148,7 +148,7 @@ function cargarMotor(htmlPath) {
   // Todo lo anterior al arranque de React: datos y funciones del juego. Se exportan las que hacen falta.
   src = src.slice(0, corte) +
     ";globalThis.__motor={Ms,Xn,Ad,kr,Jo,Is,el,en,Je,Yd,Yn,Zd,Uh,Vh,Hh,Zn,Dn,mn,fd,nn,Fd,Af,Od,Bn," +
-    "Sn,urPaceLine,urPrice,urValue,urLightKind,urScarcity,Ut};";
+    "Sn,urPaceLine,urPrice,urValue,urLightKind,urScarcity,Ut,urSkillFor:typeof urSkillFor==\"function\"?urSkillFor:null};";
   const nada = () => {};
   const nodo = { setAttribute: nada, appendChild: nada, addEventListener: nada, style: {}, relList: { supports: () => true }, classList: { add: nada, remove: nada } };
   const ctx = {
@@ -275,10 +275,10 @@ function iaResponde(M, st, accion, roll, r, juego) {
   }
 
   // Experiencia
-  if (skill) {
+  if (roll?.skill ?? skill) {
     const x = IA.xp[res] ?? 0;
     const v = x > 0 && x < 1 ? (r() < x ? 1 : 0) : x;
-    if (v) out.skillXp[skill] = v;
+    if (v) out.skillXp[roll?.skill ?? skill] = v;
   }
 
   // Cordura
@@ -508,7 +508,8 @@ function jugar(M, politica, dureza, semilla, cuenta) {
       const res = M.fd(iaComer(st, it.name, it.cond, r, juego), st.map.currentZone, [...Object.keys(st.customItems), ...st.inventory.map((x) => x.name)]).result;
       st = M.Ms(st, { type: "applyTurn", playerText: `Me como ${it.name}`, result: res, rng: r, roll: null });
     } else if (o.cat === "acción") {
-      const [skill] = o.accion;
+      // Igual que el juego: la habilidad sale del texto y del equipo que llevas (sin cuchillo, a puñetazos).
+      const skill = M.urSkillFor ? M.urSkillFor(st, o.accion[1]) : o.accion[0];
       const roll = skill ? M.Vh(st, skill, r) : null;
       if (roll) {
         const k = `${roll.difficulty}`;
