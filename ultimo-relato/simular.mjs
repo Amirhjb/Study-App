@@ -57,7 +57,7 @@ const IA = {
   // Minutos que dura cada tipo de acción [mín, máx] (regla 7 del prompt).
   minutos: {
     combate: [5, 20], sigilo: [15, 45], oficio: [20, 60], caza: [60, 180], nada: [10, 30],
-    explorar: [45, 90], buscar: [20, 60], viajar: [90, 150], hablar: [15, 40], comer: [5, 15],
+    explorar: [45, 90], buscar: [20, 60], viajar: [90, 150], hablar: [15, 40], comer: [5, 15], refugiarse: [10, 30],
   },
   xp: { justo: 1, exito: 1, critico: 2, fallo: 0.3 }, // el número es el que manda la IA (×50 en el motor); 0.3 = 30 % de dar 1
   probLesionPifia: 0.4,
@@ -124,7 +124,17 @@ const ACCIONES = [
   [null, "Busco comida y agua", "buscar"],
   [null, "Camino hacia otra zona", "viajar"],
   [null, "Hablo con quien encuentre", "hablar"],
+  [null, "Busco un sitio a cubierto", "refugiarse"],
 ];
+// Acciones que sacan al personaje a la intemperie; el resto se hace donde ya esté.
+const FUERA = new Set(["viajar", "explorar", "buscar", "caza", "combate"]);
+
+// La IA dice en cada turno si el personaje queda a cubierto ("sheltered"); se recuerda por zona.
+function aCubierto(juego, zona, tipoZona, tipoAccion, r) {
+  if (tipoAccion === "refugiarse") return true;
+  if (!FUERA.has(tipoAccion) && juego.cubierto?.zona === zona && juego.cubierto.v) return true;
+  return tipoZona === "indoor" || tipoZona === "underground" ? true : tipoZona === "urban" ? r() < 0.3 : r() < 0.1;
+}
 
 // ---------------------------------------------------------------- cargar el motor real
 function cargarMotor(htmlPath) {
@@ -321,13 +331,13 @@ function iaResponde(M, st, accion, roll, r, juego) {
   } else if (tipo === "explorar" && r() < 0.4) {
     out.mapUpdate.connections.push(`Zona ${++juego.zonas}`);
   }
-  const tz = out.mapUpdate.type;
-  out.sheltered = tz === "indoor" || tz === "underground" ? true : tz === "urban" ? r() < 0.3 : r() < 0.1;
+  out.sheltered = aCubierto(juego, out.mapUpdate.currentZone, out.mapUpdate.type, tipo, r);
+  juego.cubierto = { zona: out.mapUpdate.currentZone, v: out.sheltered };
   return JSON.stringify(out);
 }
 
 // Respuesta a "Me como ..." (comida inventada, que no tiene botón de usar).
-function iaComer(st, nombre, cond, r) {
+function iaComer(st, nombre, cond, r, juego) {
   const zona = st.map.currentZone || "Inicio";
   const nodo = st.map.nodes[zona] ?? { type: "urban", danger: 2 };
   const out = {
@@ -336,8 +346,9 @@ function iaComer(st, nombre, cond, r) {
     location: zona, injuriesUpdate: [], diseasesUpdate: [],
     mapUpdate: { currentZone: zona, type: nodo.type === "unknown" ? "urban" : nodo.type, danger: nodo.danger || 2, connections: [] },
     suggestions: [], newItems: [], recipesLearned: [], sanityChange: 0, companionsUpdate: [], tradeOffer: null, loreUpdate: [],
-    sheltered: nodo.type === "indoor" || nodo.type === "underground",
+    sheltered: aCubierto(juego, zona, nodo.type, "comer", r),
   };
+  juego.cubierto = { zona, v: out.sheltered };
   if (cond != null && cond < 30 && r() < 0.4) out.diseasesUpdate.push({ id: "food_poison", action: "add" });
   return JSON.stringify(out);
 }
@@ -394,7 +405,7 @@ function alAzar(ops, r) {
   return elegir(ops.filter((o) => o.cat === cat), r);
 }
 
-function sensato(M, st, ops, r) {
+function sensato(M, st, ops, r, juego) {
   const n = st.needs;
   const usar = ops.filter((o) => o.cat === "usar");
   const de = (f) => usar.filter((o) => f(o.use));
@@ -411,6 +422,10 @@ function sensato(M, st, ops, r) {
     const o = de((u) => (u.cures ?? []).concat(u.curesNow ?? []).some((c) => ids.includes(c)));
     if (o.length) return elegir(o, r);
   }
+  // Con clima severo, se pone a cubierto y no sale si no le hace falta.
+  const severo = !!M.Sn[st.weather.id]?.severe;
+  const cubierto = enBase(st) || (juego.cubierto?.zona === st.map.currentZone ? juego.cubierto.v : ["indoor", "underground"].includes(M.Dn(st.map)?.type));
+  if (severo && !cubierto) return ops.find((o) => o.id === "acción: Busco un sitio a cubierto");
   if (n.sleep < 25 || (noche && n.sleep < 70)) return { ...ops.find((o) => o.id === "dormir"), horas: 8 };
   const tieneAgua = de((u) => (u.thirst ?? 0) > 20).length > 0;
   const tieneComida = de((u) => (u.hunger ?? 0) > 20).length > 0 || ops.some((x) => x.comer);
@@ -424,6 +439,8 @@ function sensato(M, st, ops, r) {
       if ((u.hp ?? 0) > 0 && st.hp > st.maxHp * 0.8 && !(u.cures || u.curesNow || u.healInjury)) return false;
     }
     if (o.id === "dormir" && n.sleep > 70) return false;
+    if (severo && o.accion && FUERA.has(o.accion[2])) return false;
+    if (o.tipo === "returnToBase" && severo) return false;
     return true;
   });
   const o = alAzar(utiles.length ? utiles : ops, r);
@@ -480,7 +497,7 @@ function jugar(M, politica, dureza, semilla, cuenta) {
   while (st.screen !== "death" && M.mn(st.minutes) <= DIAS_MAX && g.turnos < 3000) {
     const ops = opciones(M, st);
     for (const o of ops) cuenta.disp[o.id] = (cuenta.disp[o.id] ?? 0) + 1;
-    const o = politica === "azar" ? alAzar(ops, r) : sensato(M, st, ops, r);
+    const o = politica === "azar" ? alAzar(ops, r) : sensato(M, st, ops, r, juego);
     cuenta.elegida[o.id] = (cuenta.elegida[o.id] ?? 0) + 1;
     const antes = st;
     const ultimo = st.log.at(-1)?.id;
@@ -488,7 +505,7 @@ function jugar(M, politica, dureza, semilla, cuenta) {
     if (M.Sn[st.weather.id]?.severe) g.turnosClimaSevero++;
     if (o.cat === "acción" && o.comer) {
       const it = elegir(o.comer, r);
-      const res = M.fd(iaComer(st, it.name, it.cond, r), st.map.currentZone, [...Object.keys(st.customItems), ...st.inventory.map((x) => x.name)]).result;
+      const res = M.fd(iaComer(st, it.name, it.cond, r, juego), st.map.currentZone, [...Object.keys(st.customItems), ...st.inventory.map((x) => x.name)]).result;
       st = M.Ms(st, { type: "applyTurn", playerText: `Me como ${it.name}`, result: res, rng: r, roll: null });
     } else if (o.cat === "acción") {
       const [skill] = o.accion;
@@ -570,6 +587,8 @@ function jugar(M, politica, dureza, semilla, cuenta) {
   g.muerto = st.screen === "death";
   g.causa = st.deathCause;
   g.climaSeveroAlFinal = !!M.Sn[st.weather.id]?.severe;
+  g.climaFinal = st.weather.id;
+  g.cubiertoAlFinal = enBase(st) || (juego.cubierto?.zona === st.map.currentZone ? juego.cubierto.v : ["indoor", "underground"].includes(M.Dn(st.map)?.type));
   g.dia = Math.min(DIAS_MAX, M.mn(st.minutes));
   g.diasVividos = (st.minutes - 480) / 1440;
   g.minutos = st.minutes;
@@ -710,23 +729,25 @@ function comprobaciones(M) {
     out.push({ titulo: "Resultados de una tirada a dificultad 12 según el nivel", filas });
   }
 
-  // 8. Una herida leve sin antibióticos (con comida, agua y sueño de sobra, a cubierto)
+  // 8. Una herida leve sin antibióticos (comida, agua y temperatura cubiertas; duerme 8 h cada noche en su refugio)
   {
     const N = 1000;
     let infectadas = 0, muertes = 0;
     const espera = turno(60, "indoor", true);
     for (let i = 0; i < N; i++) {
       let st = base({ inventory: [], injuries: [{ zone: "brazo_izq", severity: 1, label: "Corte", age: 0 }], weather: { id: "clear", daysLeft: 99 }, forecast: [], map: zona("indoor") });
+      st = { ...st, base: { ...st.base, established: true, location: "Z", structures: ["muro"] } };
       let inf = false;
       for (let h = 0; h < 120 && st.screen !== "death"; h++) {
         st = { ...st, needs: { hunger: 80, thirst: 80, sleep: 80, temp: 36.5 }, sanity: 100 };
-        st = M.Ms(st, { type: "applyTurn", playerText: "Espero", result: espera, rng: r, roll: null });
+        if (h % 24 === 16) { st = M.Ms(st, { type: "sleep", hours: 8, rng: r }); h += 7; }
+        else st = M.Ms(st, { type: "applyTurn", playerText: "Espero", result: espera, rng: r, roll: null });
         inf ||= st.diseases.some((d) => d.id === "wound_infection");
       }
       if (inf) infectadas++;
       if (st.screen === "death") muertes++;
     }
-    out.push({ titulo: "Una herida leve sin antibióticos, en 5 días (todo lo demás cubierto)", filas: [{ "se infecta": pct(infectadas, N), "muere de la infección": pct(muertes, N) }] });
+    out.push({ titulo: "Una herida leve sin antibióticos, en 5 días (comida y agua cubiertas, duerme cada noche)", filas: [{ "se infecta": pct(infectadas, N), "muere de la infección": pct(muertes, N) }] });
   }
 
   // 9. Clima severo a la intemperie: la misma hora, en una acción larga o en 12 cortas
