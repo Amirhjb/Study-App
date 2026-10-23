@@ -22,6 +22,7 @@ class Menu extends Screen {
 	private final List<AutoDispensador.Opcion> opciones;
 	private final List<Button> resultados = new ArrayList<>();
 	private List<AutoDispensador.Opcion> encontradas = List.of();
+	private boolean venta = false; // pestaña: crafteo o venta
 
 	Menu(AutoDispensador mod, List<AutoDispensador.Opcion> opciones) {
 		super(Component.literal("AutoCraft"));
@@ -33,7 +34,15 @@ class Menu extends Screen {
 	@Override
 	protected void init() {
 		int izq = width / 2 - ANCHO - 5, der = width / 2 + 5, y = 30;
-		addRenderableWidget(new StringWidget(width / 2 - ANCHO / 2, 10, ANCHO, 12, Component.literal("AutoCraft (K)"), font));
+		Button crafteo = addRenderableWidget(Button.builder(Component.literal("Crafteo"), b -> pestaña(false)).bounds(width / 2 - 100, 4, 98, 20).build());
+		Button vender = addRenderableWidget(Button.builder(Component.literal("Venta"), b -> pestaña(true)).bounds(width / 2 + 2, 4, 98, 20).build());
+		crafteo.active = venta;
+		vender.active = !venta;
+		AutoDispensador.Receta receta = mod.receta(minecraft);
+		if (venta) {
+			initVenta(izq, der, y, receta);
+			return;
+		}
 
 		// Izquierda: ajustes
 		addRenderableWidget(alternar(izq, y, "Activado", () -> mod.activo, v -> mod.activo = v));
@@ -44,7 +53,6 @@ class Menu extends Screen {
 		addRenderableWidget(alternar(izq, y += 24, "Tirar el resultado", () -> mod.tirar, v -> mod.tirar = v));
 		addRenderableWidget(alternar(izq, y += 24, "Limpiar inventario", () -> mod.limpiar, v -> mod.limpiar = v));
 
-		AutoDispensador.Receta receta = mod.receta(minecraft);
 		if (receta != null) {
 			addRenderableWidget(new StringWidget(izq, y += 28, ANCHO, 12, Component.literal("Huecos por ingrediente:"), font));
 			y -= 10;
@@ -68,6 +76,27 @@ class Menu extends Screen {
 			resultados.add(b);
 		}
 		setInitialFocus(caja);
+	}
+
+	private void initVenta(int izq, int der, int y, AutoDispensador.Receta receta) {
+		addRenderableWidget(alternar(izq, y, "Vender", () -> mod.vender, v -> mod.vender = v));
+		fila(izq, y += 24, () -> "Cantidad por venta: " + mod.cantidadVenta, d -> mod.cantidadVenta = Math.clamp(mod.cantidadVenta + d, 1, 64));
+		fila(izq, y += 24, () -> "Cada " + mod.segundosVenta + " s", d -> mod.segundosVenta = Math.clamp(mod.segundosVenta + d, 1, 3600));
+		fila(izq, y += 24, () -> "Hueco de la barra: " + (mod.huecoVenta + 1), d -> mod.huecoVenta = Math.clamp(mod.huecoVenta + d, 0, 8));
+
+		y = 30;
+		Component nombre = receta != null ? receta.nombre() : Component.literal(mod.objetivo);
+		addRenderableWidget(new StringWidget(der, y + 6, ANCHO, 12, Component.literal("Vende: ").append(nombre), font));
+		addRenderableWidget(new StringWidget(der, y += 24, ANCHO, 12, Component.literal("Comando (lo que tengas en la mano):"), font));
+		EditBox caja = addRenderableWidget(new EditBox(font, der, y += 14, ANCHO, 20, Component.literal("Comando")));
+		caja.setMaxLength(100);
+		caja.setValue("/" + mod.comando);
+		caja.setResponder(v -> mod.comando = v.trim().replaceFirst("^/", ""));
+	}
+
+	private void pestaña(boolean venta) {
+		this.venta = venta;
+		rebuildWidgets();
 	}
 
 	private void buscar(String texto) {

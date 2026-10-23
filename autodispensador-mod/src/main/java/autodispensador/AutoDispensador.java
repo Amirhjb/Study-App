@@ -11,8 +11,12 @@ import net.minecraft.client.gui.screens.recipebook.RecipeCollection;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.context.ContextMap;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.CraftingMenu;
+import net.minecraft.world.inventory.InventoryMenu;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.display.RecipeDisplayEntry;
@@ -56,9 +60,16 @@ public class AutoDispensador implements ClientModInitializer {
 	String objetivo = "minecraft:dispenser";
 	int intervalo = 10; // ticks entre crafteos (20 ticks = 1 segundo)
 	int reserva = 1; // cuántos de cada ingrediente se dejan siempre en el inventario
-	boolean tirar = true; // tirar el resultado (si no, se guarda; si no cabe, se tira igual)
+	boolean tirar = true; // tirar el resultado (si no, o si se vende, se guarda; si no cabe, se tira igual)
 	boolean limpiar = true; // tirar del inventario principal lo que no sea ingrediente o pase de su cupo
 	private final Map<String, Integer> cupos = new HashMap<>(); // "objetivo|ingrediente" -> huecos
+
+	boolean vender = false;
+	String comando = "ah sell 100"; // sin la barra; vende lo que tengas en la mano
+	int cantidadVenta = 1; // cuántos se ponen en la mano para cada venta
+	int segundosVenta = 1; // mínimo 1: más rápido, el servidor te echa por spam de comandos
+	int huecoVenta = 8; // hueco de la barra rápida (0-8) donde se pone lo que se vende
+	private int esperaVenta = 0;
 
 	private int espera = 0; // ticks desde el último crafteo
 	private int atascado = 0; // ticks con algo en el cursor
@@ -77,6 +88,7 @@ public class AutoDispensador implements ClientModInitializer {
 				if (mc.player != null) mc.setScreen(new Menu(this, opciones(mc)));
 			}
 			if (activo) craftear(mc);
+			if (vender) vender(mc);
 		});
 	}
 
@@ -102,7 +114,7 @@ public class AutoDispensador implements ClientModInitializer {
 		// (el servidor calcula el resultado, así que tarda un tick en aparecer).
 		ItemStack resultado = menu.getSlot(RESULTADO).getItem();
 		if (++espera >= intervalo && !resultado.isEmpty()) {
-			input(mc, menu, RESULTADO, 0, tirar || !cabe(menu, resultado) ? ContainerInput.THROW : ContainerInput.QUICK_MOVE);
+			input(mc, menu, RESULTADO, 0, !seQueda() || !cabe(menu, resultado) ? ContainerInput.THROW : ContainerInput.QUICK_MOVE);
 			espera = 0;
 		}
 
@@ -119,6 +131,81 @@ public class AutoDispensador implements ClientModInitializer {
 				return;
 			}
 		}
+	}
+
+	/**
+	 * Cada {@code segundosVenta}: deja exactamente {@code cantidadVenta} del objetivo en el hueco de venta,
+	 * lo pone en la mano y manda el comando. Cada paso espera al tick siguiente para que el servidor ya
+	 * tenga el hueco correcto cuando le llega el comando (si no, vendería otra cosa).
+	 */
+	private void vender(Minecraft mc) {
+		if (mc.player == null || mc.gameMode == null || mc.getConnection() == null) return;
+		if (++esperaVenta < segundosVenta * 20) return;
+		// Solo con la mesa o el inventario (o nada) abierto: nunca hace clics en menús del servidor, como el del /ah.
+		AbstractContainerMenu menu = mc.player.containerMenu;
+		if (!(menu instanceof CraftingMenu || menu instanceof InventoryMenu) || !menu.getCarried().isEmpty()) return;
+		Inventory inv = mc.player.getInventory();
+		int mano = hueco(menu, inv, huecoVenta);
+		if (mano < 0) return;
+
+		ItemStack s = menu.getSlot(mano).getItem();
+		if (!s.isEmpty() && !clave(s.getItem()).equals(objetivo)) {
+			aviso(mc, "deja libre el hueco " + (huecoVenta + 1) + " de la barra para vender");
+			return;
+		}
+		if (s.getCount() != cantidadVenta) {
+			if (!s.isEmpty()) {
+				click(mc, menu, mano, 0); // vaciar el hueco y colocar la cantidad justa
+				soltarCursor(mc, menu, mano);
+			}
+			if (!llenar(mc, menu, mano, cantidadVenta)) aviso(mc, "esperando " + cantidadVenta + " para vender");
+			return;
+		}
+		if (inv.getSelectedSlot() != huecoVenta) {
+			inv.setSelectedSlot(huecoVenta);
+			return;
+		}
+		mc.getConnection().sendCommand(comando);
+		esperaVenta = 0;
+	}
+
+	/** Pone {@code n} del objetivo en el hueco vacío {@code destino}, sacándolos de otros huecos. false si no hay bastantes. */
+	private boolean llenar(Minecraft mc, AbstractContainerMenu menu, int destino, int n) {
+		int hay = 0;
+		for (int i = 0; i < menu.slots.size(); i++) {
+			ItemStack s = menu.getSlot(i).getItem();
+			if (i != destino && esInventario(menu.getSlot(i)) && clave(s.getItem()).equals(objetivo)) hay += s.getCount();
+		}
+		if (hay < n) return false;
+		for (int i = 0; i < menu.slots.size() && menu.getSlot(destino).getItem().getCount() < n; i++) {
+			ItemStack s = menu.getSlot(i).getItem();
+			if (i == destino || !esInventario(menu.getSlot(i)) || s.isEmpty() || !clave(s.getItem()).equals(objetivo)) continue;
+			click(mc, menu, i, 0);
+			int falta = n - menu.getSlot(destino).getItem().getCount();
+			if (menu.getCarried().getCount() <= falta) click(mc, menu, destino, 0); // cabe todo
+			else for (int k = 0; k < falta; k++) click(mc, menu, destino, 1); // de 1 en 1
+			if (!menu.getCarried().isEmpty()) click(mc, menu, i, 0); // devolver el resto
+		}
+		return true;
+	}
+
+	/** Inventario principal o barra rápida (no armadura ni mano izquierda). */
+	private static boolean esInventario(Slot sl) {
+		return sl.container instanceof Inventory && sl.getContainerSlot() < 36;
+	}
+
+	/** Si el resultado se guarda en el inventario (para venderlo hace falta guardarlo). */
+	boolean seQueda() {
+		return !tirar || vender;
+	}
+
+	/** Índice en el menú del hueco {@code indice} del inventario del jugador (0-8 = barra rápida). */
+	private static int hueco(AbstractContainerMenu menu, Inventory inv, int indice) {
+		for (int i = 0; i < menu.slots.size(); i++) {
+			Slot sl = menu.slots.get(i);
+			if (sl.container == inv && sl.getContainerSlot() == indice) return i;
+		}
+		return -1;
 	}
 
 	/**
@@ -174,7 +261,7 @@ public class AutoDispensador implements ClientModInitializer {
 		int[] usados = new int[r.grupos().size()];
 		for (int i = 10; i < FIN_PRINCIPAL; i++) {
 			ItemStack s = menu.getSlot(i).getItem();
-			if (s.isEmpty() || (!tirar && clave(s.getItem()).equals(r.objetivo()))) continue;
+			if (s.isEmpty() || (seQueda() && clave(s.getItem()).equals(r.objetivo()))) continue;
 			int g = 0;
 			while (g < usados.length && !vale(s, r.grupos().get(g))) g++;
 			if (g == usados.length || ++usados[g] > cupo(r.grupos().get(g))) {
@@ -193,8 +280,13 @@ public class AutoDispensador implements ClientModInitializer {
 	}
 
 	/** Deja lo del cursor en el inventario (juntándolo con su stack o en un hueco libre); si no cabe, lo tira. */
-	private static void soltarCursor(Minecraft mc, CraftingMenu menu) {
-		for (int i = 10; i < menu.slots.size() && !menu.getCarried().isEmpty(); i++) {
+	private static void soltarCursor(Minecraft mc, AbstractContainerMenu menu) {
+		soltarCursor(mc, menu, -1);
+	}
+
+	private static void soltarCursor(Minecraft mc, AbstractContainerMenu menu, int evitar) {
+		for (int i = 0; i < menu.slots.size() && !menu.getCarried().isEmpty(); i++) {
+			if (i == evitar || !esInventario(menu.getSlot(i))) continue;
 			ItemStack s = menu.getSlot(i).getItem();
 			boolean cabe = s.isEmpty() || (ItemStack.isSameItemSameComponents(s, menu.getCarried()) && s.getCount() < s.getMaxStackSize());
 			if (cabe) click(mc, menu, i, 0);
@@ -202,11 +294,11 @@ public class AutoDispensador implements ClientModInitializer {
 		if (!menu.getCarried().isEmpty()) click(mc, menu, -999, 0); // clic fuera de la ventana = tirar
 	}
 
-	private static void click(Minecraft mc, CraftingMenu menu, int slot, int boton) {
+	private static void click(Minecraft mc, AbstractContainerMenu menu, int slot, int boton) {
 		input(mc, menu, slot, boton, ContainerInput.PICKUP);
 	}
 
-	private static void input(Minecraft mc, CraftingMenu menu, int slot, int boton, ContainerInput tipo) {
+	private static void input(Minecraft mc, AbstractContainerMenu menu, int slot, int boton, ContainerInput tipo) {
 		mc.gameMode.handleContainerInput(menu.containerId, slot, boton, tipo, mc.player);
 	}
 
@@ -332,6 +424,11 @@ public class AutoDispensador implements ClientModInitializer {
 			reserva = Math.max(0, Integer.parseInt(p.getProperty("reserva", "1")));
 			tirar = Boolean.parseBoolean(p.getProperty("tirar", "true"));
 			limpiar = Boolean.parseBoolean(p.getProperty("limpiar", "true"));
+			vender = Boolean.parseBoolean(p.getProperty("vender", "false"));
+			comando = p.getProperty("comando", comando);
+			cantidadVenta = Math.clamp(Integer.parseInt(p.getProperty("cantidadVenta", "1")), 1, 64);
+			segundosVenta = Math.max(1, Integer.parseInt(p.getProperty("segundosVenta", "1")));
+			huecoVenta = Math.clamp(Integer.parseInt(p.getProperty("huecoVenta", "8")), 0, 8);
 			for (String k : p.stringPropertyNames()) {
 				if (k.startsWith("cupo.")) cupos.put(k.substring(5), Integer.parseInt(p.getProperty(k)));
 			}
@@ -348,6 +445,11 @@ public class AutoDispensador implements ClientModInitializer {
 		p.setProperty("reserva", String.valueOf(reserva));
 		p.setProperty("tirar", String.valueOf(tirar));
 		p.setProperty("limpiar", String.valueOf(limpiar));
+		p.setProperty("vender", String.valueOf(vender));
+		p.setProperty("comando", comando);
+		p.setProperty("cantidadVenta", String.valueOf(cantidadVenta));
+		p.setProperty("segundosVenta", String.valueOf(segundosVenta));
+		p.setProperty("huecoVenta", String.valueOf(huecoVenta));
 		cupos.forEach((k, v) -> p.setProperty("cupo." + k, String.valueOf(v)));
 		try (Writer w = Files.newBufferedWriter(CONFIG)) {
 			p.store(w, "AutoDispensador - intervalo en ticks (20 = 1 segundo)");
