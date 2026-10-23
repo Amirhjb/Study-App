@@ -10,6 +10,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.recipebook.RecipeCollection;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import net.minecraft.util.context.ContextMap;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -137,8 +138,8 @@ public class AutoCraft implements ClientModInitializer {
 
 	/**
 	 * Cada {@code segundosVenta}: deja exactamente {@code cantidadVenta} del objetivo en el hueco de venta,
-	 * lo pone en la mano y manda el comando. Cada paso espera al tick siguiente para que el servidor ya
-	 * tenga el hueco correcto cuando le llega el comando (si no, vendería otra cosa).
+	 * lo pone en la mano y manda el comando. La colocación espera al tick siguiente para que el servidor
+	 * confirme los clics antes de vender.
 	 */
 	private void vender(Minecraft mc) {
 		if (mc.player == null || mc.gameMode == null || mc.getConnection() == null) return;
@@ -171,11 +172,10 @@ public class AutoCraft implements ClientModInitializer {
 					: "venta: esperando " + cantidadVenta + " para vender");
 			return;
 		}
-		if (inv.getSelectedSlot() != huecoVenta) {
-			inv.setSelectedSlot(huecoVenta);
-			aviso(mc, "venta: cambiando la mano al hueco " + (huecoVenta + 1));
-			return;
-		}
+		// Se avisa al servidor del hueco de la mano justo antes del comando (los paquetes llegan en orden).
+		// Si no, el servidor puede seguir mirando otro hueco y responde "You cannot sell air".
+		inv.setSelectedSlot(huecoVenta);
+		mc.getConnection().send(new ServerboundSetCarriedItemPacket(huecoVenta));
 		mc.getConnection().sendCommand(comando);
 		esperaVenta = 0;
 		aviso(mc, "venta: enviado /" + comando);
