@@ -19,9 +19,8 @@ class Menu extends Screen {
 	private static final int ANCHO = 200, MAX_RESULTADOS = 5;
 
 	private final AutoCraft mod;
-	private final List<AutoCraft.Opcion> opciones;
-	private final List<Button> resultados = new ArrayList<>();
-	private List<AutoCraft.Opcion> encontradas = List.of();
+	private final List<AutoCraft.Opcion> opciones; // lo que se puede craftear
+	private final List<AutoCraft.Opcion> todos = AutoCraft.todosLosObjetos(); // lo que se puede vender
 	private boolean venta = false; // pestaña: crafteo o venta
 
 	Menu(AutoCraft mod, List<AutoCraft.Opcion> opciones) {
@@ -65,17 +64,7 @@ class Menu extends Screen {
 		y = 30;
 		Component actual = receta != null ? receta.nombre() : Component.literal(mod.objetivo + " (receta no desbloqueada)");
 		addRenderableWidget(new StringWidget(der, y + 6, ANCHO, 12, Component.literal("Creando: ").append(actual), font));
-		EditBox caja = addRenderableWidget(new EditBox(font, der, y += 20, ANCHO, 20, Component.literal("Buscar")));
-		caja.setHint(Component.literal("Buscar objeto..."));
-		caja.setResponder(this::buscar);
-		resultados.clear();
-		for (int i = 0; i < MAX_RESULTADOS; i++) {
-			int n = i;
-			Button b = addRenderableWidget(Button.builder(Component.empty(), x -> elegir(n)).bounds(der, y += 22, ANCHO, 20).build());
-			b.visible = false;
-			resultados.add(b);
-		}
-		setInitialFocus(caja);
+		setInitialFocus(buscador(der, y + 20, opciones, mod::elegir));
 	}
 
 	private void initVenta(int izq, int der, int y, AutoCraft.Receta receta) {
@@ -85,9 +74,15 @@ class Menu extends Screen {
 		fila(izq, y += 24, () -> "Hueco de la barra: " + (mod.huecoVenta + 1), d -> mod.huecoVenta = Math.clamp(mod.huecoVenta + d, 0, 8));
 
 		y = 30;
-		Component nombre = receta != null ? receta.nombre() : Component.literal(mod.objetivo);
+		Component nombre = !mod.objetoVenta.isEmpty() ? nombre(mod.objetoVenta)
+				: Component.literal("lo que se craftea (").append(receta != null ? receta.nombre() : nombre(mod.objetivo)).append(")");
 		addRenderableWidget(new StringWidget(der, y + 6, ANCHO, 12, Component.literal("Vende: ").append(nombre), font));
-		addRenderableWidget(new StringWidget(der, y += 24, ANCHO, 12, Component.literal("Comando (lo que tengas en la mano):"), font));
+		buscador(der, y += 20, todos, k -> mod.objetoVenta = k);
+		addRenderableWidget(Button.builder(Component.literal("Vender lo que se craftea"), b -> {
+			mod.objetoVenta = "";
+			rebuildWidgets();
+		}).bounds(der, y += 22 * (MAX_RESULTADOS + 1) + 4, ANCHO, 20).build());
+		addRenderableWidget(new StringWidget(der, y += 26, ANCHO, 12, Component.literal("Comando (lo que tengas en la mano):"), font));
 		EditBox caja = addRenderableWidget(new EditBox(font, der, y += 14, ANCHO, 20, Component.literal("Comando")));
 		caja.setMaxLength(100);
 		caja.setValue("/" + mod.comando);
@@ -99,20 +94,37 @@ class Menu extends Screen {
 		rebuildWidgets();
 	}
 
-	private void buscar(String texto) {
-		String q = texto.toLowerCase(Locale.ROOT).trim();
-		encontradas = q.isEmpty() ? List.of() : opciones.stream()
-				.filter(o -> o.nombre().getString().toLowerCase(Locale.ROOT).contains(q) || o.clave().contains(q))
-				.limit(MAX_RESULTADOS).toList();
-		for (int i = 0; i < resultados.size(); i++) {
-			resultados.get(i).visible = i < encontradas.size();
-			if (i < encontradas.size()) resultados.get(i).setMessage(encontradas.get(i).nombre());
+	/** Caja de búsqueda con hasta 5 resultados debajo; al pulsar uno se llama a {@code alElegir} con su clave. */
+	private EditBox buscador(int x, int y, List<AutoCraft.Opcion> lista, Consumer<String> alElegir) {
+		EditBox caja = addRenderableWidget(new EditBox(font, x, y, ANCHO, 20, Component.literal("Buscar")));
+		caja.setHint(Component.literal("Buscar objeto..."));
+		List<AutoCraft.Opcion> encontradas = new ArrayList<>();
+		List<Button> botones = new ArrayList<>();
+		for (int i = 0; i < MAX_RESULTADOS; i++) {
+			int n = i;
+			Button b = addRenderableWidget(Button.builder(Component.empty(), boton -> {
+				alElegir.accept(encontradas.get(n).clave());
+				rebuildWidgets();
+			}).bounds(x, y += 22, ANCHO, 20).build());
+			b.visible = false;
+			botones.add(b);
 		}
+		caja.setResponder(texto -> {
+			String q = texto.toLowerCase(Locale.ROOT).trim();
+			encontradas.clear();
+			if (!q.isEmpty()) lista.stream()
+					.filter(o -> o.nombre().getString().toLowerCase(Locale.ROOT).contains(q) || o.clave().contains(q))
+					.limit(MAX_RESULTADOS).forEach(encontradas::add);
+			for (int i = 0; i < botones.size(); i++) {
+				botones.get(i).visible = i < encontradas.size();
+				if (i < encontradas.size()) botones.get(i).setMessage(encontradas.get(i).nombre());
+			}
+		});
+		return caja;
 	}
 
-	private void elegir(int i) {
-		mod.elegir(encontradas.get(i).clave());
-		rebuildWidgets();
+	private Component nombre(String clave) {
+		return todos.stream().filter(o -> o.clave().equals(clave)).map(AutoCraft.Opcion::nombre).findFirst().orElse(Component.literal(clave));
 	}
 
 	private Button alternar(int x, int y, String nombre, BooleanSupplier get, Consumer<Boolean> set) {

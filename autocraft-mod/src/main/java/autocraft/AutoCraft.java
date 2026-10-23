@@ -19,6 +19,7 @@ import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.display.RecipeDisplayEntry;
 import net.minecraft.world.item.crafting.display.ShapedCraftingRecipeDisplay;
 import net.minecraft.world.item.crafting.display.ShapelessCraftingRecipeDisplay;
@@ -65,6 +66,7 @@ public class AutoCraft implements ClientModInitializer {
 	private final Map<String, Integer> cupos = new HashMap<>(); // "objetivo|ingrediente" -> huecos
 
 	boolean vender = false;
+	String objetoVenta = ""; // vacío = vender lo que se craftea
 	String comando = "ah sell 100"; // sin la barra; vende lo que tengas en la mano
 	int cantidadVenta = 1; // cuántos se ponen en la mano para cada venta
 	int segundosVenta = 1; // mínimo 1: más rápido, el servidor te echa por spam de comandos
@@ -156,7 +158,7 @@ public class AutoCraft implements ClientModInitializer {
 		if (mano < 0) return;
 
 		ItemStack s = menu.getSlot(mano).getItem();
-		if (!s.isEmpty() && !clave(s.getItem()).equals(objetivo)) {
+		if (!s.isEmpty() && !clave(s.getItem()).equals(aVender())) {
 			aviso(mc, "deja libre el hueco " + (huecoVenta + 1) + " de la barra para vender");
 			return;
 		}
@@ -180,17 +182,17 @@ public class AutoCraft implements ClientModInitializer {
 		System.out.println("[AutoCraft] enviado /" + comando + " con " + s.getCount() + " " + clave(s.getItem()) + " en la mano");
 	}
 
-	/** Pone {@code n} del objetivo en el hueco vacío {@code destino}, sacándolos de otros huecos. false si no hay bastantes. */
+	/** Pone {@code n} de lo que se vende en el hueco vacío {@code destino}, sacándolos de otros huecos. false si no hay bastantes. */
 	private boolean llenar(Minecraft mc, AbstractContainerMenu menu, int destino, int n) {
 		int hay = 0;
 		for (int i = 0; i < menu.slots.size(); i++) {
 			ItemStack s = menu.getSlot(i).getItem();
-			if (i != destino && esInventario(menu.getSlot(i)) && clave(s.getItem()).equals(objetivo)) hay += s.getCount();
+			if (i != destino && esInventario(menu.getSlot(i)) && clave(s.getItem()).equals(aVender())) hay += s.getCount();
 		}
 		if (hay < n) return false;
 		for (int i = 0; i < menu.slots.size() && menu.getSlot(destino).getItem().getCount() < n; i++) {
 			ItemStack s = menu.getSlot(i).getItem();
-			if (i == destino || !esInventario(menu.getSlot(i)) || s.isEmpty() || !clave(s.getItem()).equals(objetivo)) continue;
+			if (i == destino || !esInventario(menu.getSlot(i)) || s.isEmpty() || !clave(s.getItem()).equals(aVender())) continue;
 			click(mc, menu, i, 0);
 			int falta = n - menu.getSlot(destino).getItem().getCount();
 			if (menu.getCarried().getCount() <= falta) click(mc, menu, destino, 0); // cabe todo
@@ -205,9 +207,14 @@ public class AutoCraft implements ClientModInitializer {
 		return sl.container instanceof Inventory && sl.getContainerSlot() < 36;
 	}
 
+	/** Lo que se vende: el objeto elegido en la pestaña Venta o, si no hay, lo que se craftea. */
+	String aVender() {
+		return objetoVenta.isEmpty() ? objetivo : objetoVenta;
+	}
+
 	/** Si el resultado se guarda en el inventario (para venderlo hace falta guardarlo). */
 	boolean seQueda() {
-		return !tirar || vender;
+		return !tirar || (vender && aVender().equals(objetivo));
 	}
 
 	/** Índice en el menú del hueco {@code indice} del inventario del jugador (0-8 = barra rápida). */
@@ -272,7 +279,8 @@ public class AutoCraft implements ClientModInitializer {
 		int[] usados = new int[r.grupos().size()];
 		for (int i = 10; i < FIN_PRINCIPAL; i++) {
 			ItemStack s = menu.getSlot(i).getItem();
-			if (s.isEmpty() || (seQueda() && clave(s.getItem()).equals(r.objetivo()))) continue;
+			String k = clave(s.getItem());
+			if (s.isEmpty() || (seQueda() && k.equals(r.objetivo())) || (vender && k.equals(aVender()))) continue; // lo que se vende no se tira
 			int g = 0;
 			while (g < usados.length && !vale(s, r.grupos().get(g))) g++;
 			if (g == usados.length || ++usados[g] > cupo(r.grupos().get(g))) {
@@ -343,6 +351,12 @@ public class AutoCraft implements ClientModInitializer {
 			if (!r.isEmpty()) m.putIfAbsent(clave(r.getItem()), new Opcion(clave(r.getItem()), r.getHoverName()));
 		}
 		return new ArrayList<>(m.values());
+	}
+
+	/** Todos los objetos del juego, para elegir qué vender. */
+	static List<Opcion> todosLosObjetos() {
+		return BuiltInRegistries.ITEM.stream().filter(i -> i != Items.AIR)
+				.map(i -> new Opcion(clave(i), new ItemStack(i).getHoverName())).toList();
 	}
 
 	void elegir(String clave) {
@@ -439,6 +453,7 @@ public class AutoCraft implements ClientModInitializer {
 			limpiar = Boolean.parseBoolean(p.getProperty("limpiar", "true"));
 			vender = Boolean.parseBoolean(p.getProperty("vender", "false"));
 			comando = p.getProperty("comando", comando);
+			objetoVenta = p.getProperty("objetoVenta", "");
 			cantidadVenta = Math.clamp(Integer.parseInt(p.getProperty("cantidadVenta", "1")), 1, 64);
 			segundosVenta = Math.max(1, Integer.parseInt(p.getProperty("segundosVenta", "1")));
 			huecoVenta = Math.clamp(Integer.parseInt(p.getProperty("huecoVenta", "8")), 0, 8);
@@ -460,6 +475,7 @@ public class AutoCraft implements ClientModInitializer {
 		p.setProperty("limpiar", String.valueOf(limpiar));
 		p.setProperty("vender", String.valueOf(vender));
 		p.setProperty("comando", comando);
+		p.setProperty("objetoVenta", objetoVenta);
 		p.setProperty("cantidadVenta", String.valueOf(cantidadVenta));
 		p.setProperty("segundosVenta", String.valueOf(segundosVenta));
 		p.setProperty("huecoVenta", String.valueOf(huecoVenta));
