@@ -39,6 +39,7 @@ public class AutoDispensador implements ClientModInitializer {
 
 	private boolean activo = true; // K lo apaga/enciende (fuera de menús: Minecraft no lee teclas con un menú abierto)
 	private int intervalo = 10; // ticks entre crafteos (20 ticks = 1 segundo)
+	private int reserva = 1; // cuántos de cada ingrediente se dejan siempre en el inventario
 	private int espera = 0;
 
 	@Override
@@ -65,11 +66,17 @@ public class AutoDispensador implements ClientModInitializer {
 									intervalo = IntegerArgumentType.getInteger(ctx, "ticks");
 									guardar();
 									return estado(ctx.getSource());
+								})))
+						.then(ClientCommands.literal("reserva").then(ClientCommands.argument("cantidad", IntegerArgumentType.integer(0, 64))
+								.executes(ctx -> {
+									reserva = IntegerArgumentType.getInteger(ctx, "cantidad");
+									guardar();
+									return estado(ctx.getSource());
 								})))));
 	}
 
 	/** Un crafteo como mucho por llamada. Sale sin hacer nada si falta algo o si llevas un objeto en el cursor. */
-	private static void craftear(Minecraft mc) {
+	private void craftear(Minecraft mc) {
 		if (mc.player == null || mc.gameMode == null) return;
 		if (!(mc.player.containerMenu instanceof CraftingMenu menu) || !menu.getCarried().isEmpty()) return;
 
@@ -85,16 +92,26 @@ public class AutoDispensador implements ClientModInitializer {
 	/**
 	 * Pone 1 objeto en cada hueco vacío de la rejilla, como clic derecho: coge un stack del inventario,
 	 * reparte y devuelve el resto a su sitio. false si algún hueco tiene otra cosa o falta material.
+	 * Nunca baja del mínimo de {@code reserva} en el inventario.
 	 */
-	private static boolean rellenar(Minecraft mc, CraftingMenu menu, int[] huecos, Item item) {
+	private boolean rellenar(Minecraft mc, CraftingMenu menu, int[] huecos, Item item) {
+		int faltan = 0;
 		for (int h : huecos) {
 			ItemStack actual = menu.getSlot(h).getItem();
-			if (!actual.isEmpty() && !actual.is(item)) return false;
+			if (actual.isEmpty()) faltan++;
+			else if (!actual.is(item)) return false;
 		}
-		for (int i = 10; i < menu.slots.size() && hayHueco(menu, huecos); i++) {
+		if (faltan == 0) return true;
+
+		int disponibles = 0;
+		for (int i = 10; i < menu.slots.size(); i++) {
 			ItemStack s = menu.getSlot(i).getItem();
-			// Los arcos encantados no se tocan, para no gastar tu arco bueno.
-			if (!s.is(item) || (item == Items.BOW && s.isEnchanted())) continue;
+			if (usable(s, item)) disponibles += s.getCount();
+		}
+		if (disponibles - reserva < faltan) return false;
+
+		for (int i = 10; i < menu.slots.size() && hayHueco(menu, huecos); i++) {
+			if (!usable(menu.getSlot(i).getItem(), item)) continue;
 			click(mc, menu, i, 0); // coger el stack
 			for (int h : huecos) {
 				if (menu.getCarried().isEmpty()) break;
@@ -103,6 +120,11 @@ public class AutoDispensador implements ClientModInitializer {
 			if (!menu.getCarried().isEmpty()) click(mc, menu, i, 0); // devolver el resto
 		}
 		return !hayHueco(menu, huecos);
+	}
+
+	// Los arcos encantados no se tocan, para no gastar tu arco bueno.
+	private static boolean usable(ItemStack s, Item item) {
+		return s.is(item) && !(item == Items.BOW && s.isEnchanted());
 	}
 
 	private static boolean hayHueco(CraftingMenu menu, int[] huecos) {
@@ -116,7 +138,7 @@ public class AutoDispensador implements ClientModInitializer {
 
 	private int estado(FabricClientCommandSource source) {
 		source.sendFeedback(Component.literal("AutoDispensador: " + (activo ? "ON" : "OFF") + " (tecla K) | 1 dispensador cada "
-				+ intervalo + " ticks (" + (intervalo / 20.0) + " s)"));
+				+ intervalo + " ticks (" + (intervalo / 20.0) + " s) | reserva: " + reserva + " de cada"));
 		return 1;
 	}
 
@@ -126,6 +148,7 @@ public class AutoDispensador implements ClientModInitializer {
 			Properties p = new Properties();
 			p.load(r);
 			intervalo = Math.max(1, Integer.parseInt(p.getProperty("intervalo", "10")));
+			reserva = Math.max(0, Integer.parseInt(p.getProperty("reserva", "1")));
 		} catch (Exception e) {
 			System.err.println("[AutoDispensador] Config inválida, uso valores por defecto: " + e);
 		}
@@ -134,6 +157,7 @@ public class AutoDispensador implements ClientModInitializer {
 	private void guardar() {
 		Properties p = new Properties();
 		p.setProperty("intervalo", String.valueOf(intervalo));
+		p.setProperty("reserva", String.valueOf(reserva));
 		try (Writer w = Files.newBufferedWriter(CONFIG)) {
 			p.store(w, "AutoDispensador - intervalo en ticks (20 = 1 segundo)");
 		} catch (Exception e) {
