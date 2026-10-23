@@ -1,4 +1,4 @@
-package autodispensador;
+package autocraft;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.api.ClientModInitializer;
@@ -44,8 +44,8 @@ import java.util.Set;
  * Coloca los ingredientes como harías a mano (también arcos gastados, que el libro de recetas no usa),
  * así que funciona en servidores sin instalar nada en ellos. K abre el menú.
  */
-public class AutoDispensador implements ClientModInitializer {
-	private static final Path CONFIG = FabricLoader.getInstance().getConfigDir().resolve("autodispensador.properties");
+public class AutoCraft implements ClientModInitializer {
+	private static final Path CONFIG = FabricLoader.getInstance().getConfigDir().resolve("autocraft.properties");
 
 	// Huecos del CraftingMenu: 0 = resultado, 1-9 = rejilla 3x3, 10-36 = inventario principal,
 	// 37-45 = barra rápida (esa no se limpia nunca, ahí guardas lo tuyo).
@@ -81,7 +81,7 @@ public class AutoDispensador implements ClientModInitializer {
 	public void onInitializeClient() {
 		cargar();
 		KeyMapping tecla = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-				"key.autodispensador.menu", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_K, KeyMapping.Category.MISC));
+				"key.autocraft.menu", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_K, KeyMapping.Category.MISC));
 
 		ClientTickEvents.END_CLIENT_TICK.register(mc -> {
 			while (tecla.consumeClick()) {
@@ -414,8 +414,10 @@ public class AutoDispensador implements ClientModInitializer {
 		cupos.put("minecraft:dispenser|minecraft:cobblestone", 7);
 		cupos.put("minecraft:dispenser|minecraft:redstone", 3);
 		cupos.put("minecraft:dispenser|minecraft:bow", 17);
-		if (!Files.exists(CONFIG)) return;
-		try (Reader r = Files.newBufferedReader(CONFIG)) {
+		// Si aún no hay config de AutoCraft, se leen los ajustes de cuando el mod se llamaba AutoDispensador.
+		Path origen = Files.exists(CONFIG) ? CONFIG : CONFIG.resolveSibling("autodispensador.properties");
+		if (!Files.exists(origen)) return;
+		try (Reader r = Files.newBufferedReader(origen)) {
 			Properties p = new Properties();
 			p.load(r);
 			activo = Boolean.parseBoolean(p.getProperty("activo", "true"));
@@ -433,7 +435,7 @@ public class AutoDispensador implements ClientModInitializer {
 				if (k.startsWith("cupo.")) cupos.put(k.substring(5), Integer.parseInt(p.getProperty(k)));
 			}
 		} catch (Exception e) {
-			System.err.println("[AutoDispensador] Config inválida, uso valores por defecto: " + e);
+			System.err.println("[AutoCraft] Config inválida, uso valores por defecto: " + e);
 		}
 	}
 
@@ -452,9 +454,9 @@ public class AutoDispensador implements ClientModInitializer {
 		p.setProperty("huecoVenta", String.valueOf(huecoVenta));
 		cupos.forEach((k, v) -> p.setProperty("cupo." + k, String.valueOf(v)));
 		try (Writer w = Files.newBufferedWriter(CONFIG)) {
-			p.store(w, "AutoDispensador - intervalo en ticks (20 = 1 segundo)");
+			p.store(w, "AutoCraft - intervalo en ticks (20 = 1 segundo)");
 		} catch (Exception e) {
-			System.err.println("[AutoDispensador] No se pudo guardar la config: " + e);
+			System.err.println("[AutoCraft] No se pudo guardar la config: " + e);
 		}
 	}
 }

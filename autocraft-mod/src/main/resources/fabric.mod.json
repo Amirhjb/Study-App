@@ -1,0 +1,16 @@
+{
+	"schemaVersion": 1,
+	"id": "autocraft",
+	"version": "${version}",
+	"name": "AutoCraft",
+	"description": "Con una mesa de crafteo abierta, craftea solo el objeto que elijas y, si quieres, lo vende con un comando cada X segundos. K abre el menú. Solo cliente.",
+	"license": "MIT",
+	"environment": "client",
+	"entrypoints": { "client": ["autocraft.AutoCraft"] },
+	"depends": {
+		"fabricloader": ">=0.18.4",
+		"minecraft": "~26.1",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}

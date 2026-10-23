@@ -1,4 +1,4 @@
-package autodispensador;
+package autocraft;
 
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -18,13 +18,13 @@ import java.util.function.Supplier;
 class Menu extends Screen {
 	private static final int ANCHO = 200, MAX_RESULTADOS = 5;
 
-	private final AutoDispensador mod;
-	private final List<AutoDispensador.Opcion> opciones;
+	private final AutoCraft mod;
+	private final List<AutoCraft.Opcion> opciones;
 	private final List<Button> resultados = new ArrayList<>();
-	private List<AutoDispensador.Opcion> encontradas = List.of();
+	private List<AutoCraft.Opcion> encontradas = List.of();
 	private boolean venta = false; // pestaña: crafteo o venta
 
-	Menu(AutoDispensador mod, List<AutoDispensador.Opcion> opciones) {
+	Menu(AutoCraft mod, List<AutoCraft.Opcion> opciones) {
 		super(Component.literal("AutoCraft"));
 		this.mod = mod;
 		this.opciones = opciones;
@@ -38,7 +38,7 @@ class Menu extends Screen {
 		Button vender = addRenderableWidget(Button.builder(Component.literal("Venta"), b -> pestaña(true)).bounds(width / 2 + 2, 4, 98, 20).build());
 		crafteo.active = venta;
 		vender.active = !venta;
-		AutoDispensador.Receta receta = mod.receta(minecraft);
+		AutoCraft.Receta receta = mod.receta(minecraft);
 		if (venta) {
 			initVenta(izq, der, y, receta);
 			return;
@@ -56,7 +56,7 @@ class Menu extends Screen {
 		if (receta != null) {
 			addRenderableWidget(new StringWidget(izq, y += 28, ANCHO, 12, Component.literal("Huecos por ingrediente:"), font));
 			y -= 10;
-			for (AutoDispensador.Grupo g : receta.grupos()) {
+			for (AutoCraft.Grupo g : receta.grupos()) {
 				fila(izq, y += 22, () -> g.nombre().getString() + ": " + mod.cupo(g), d -> mod.ponerCupo(g, mod.cupo(g) + d));
 			}
 		}
@@ -78,7 +78,7 @@ class Menu extends Screen {
 		setInitialFocus(caja);
 	}
 
-	private void initVenta(int izq, int der, int y, AutoDispensador.Receta receta) {
+	private void initVenta(int izq, int der, int y, AutoCraft.Receta receta) {
 		addRenderableWidget(alternar(izq, y, "Vender", () -> mod.vender, v -> mod.vender = v));
 		fila(izq, y += 24, () -> "Cantidad por venta: " + mod.cantidadVenta, d -> mod.cantidadVenta = Math.clamp(mod.cantidadVenta + d, 1, 64));
 		fila(izq, y += 24, () -> "Cada " + mod.segundosVenta + " s", d -> mod.segundosVenta = Math.clamp(mod.segundosVenta + d, 1, 3600));
