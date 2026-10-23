@@ -1,18 +1,23 @@
 package autodispensador;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
-import net.fabricmc.api.ModInitializer;
-import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
+import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.commands.CommandSourceStack;
-import net.minecraft.commands.Commands;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
-import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.world.inventory.CraftingMenu;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import org.lwjgl.glfw.GLFW;
 
 import java.io.Reader;
 import java.io.Writer;
@@ -20,29 +25,42 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Properties;
 
-public class AutoDispensador implements ModInitializer {
+/**
+ * Solo cliente: con una mesa de crafteo abierta, hace los clics por ti.
+ * Deja roquedo y redstone en la rejilla y va metiendo un arco cada vez, como harías a mano,
+ * así que funciona en servidores sin instalar nada en ellos.
+ */
+public class AutoDispensador implements ClientModInitializer {
 	private static final Path CONFIG = FabricLoader.getInstance().getConfigDir().resolve("autodispensador.properties");
 
-	private boolean activado = true;
+	// Huecos del CraftingMenu: 0 = resultado, 1-9 = rejilla 3x3, 10-45 = inventario.
+	private static final int RESULTADO = 0, ARCO = 5, REDSTONE = 8;
+	private static final int[] ROQUEDO = {1, 2, 3, 4, 6, 7, 9};
+
+	private boolean activo = false;
 	private int intervalo = 10; // ticks entre crafteos (20 ticks = 1 segundo)
+	private int espera = 0;
 
 	@Override
-	public void onInitialize() {
+	public void onInitializeClient() {
 		cargar();
+		KeyMapping tecla = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+				"key.autodispensador.toggle", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_K, KeyMapping.Category.MISC));
 
-		ServerTickEvents.END_SERVER_TICK.register(server -> {
-			if (!activado || server.getTickCount() % intervalo != 0) return;
-			for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-				craftear(player.getInventory());
+		ClientTickEvents.END_CLIENT_TICK.register(mc -> {
+			while (tecla.consumeClick()) {
+				activo = !activo;
+				if (mc.player != null) mc.player.sendOverlayMessage(Component.literal("AutoDispensador: " + (activo ? "ON" : "OFF")));
 			}
+			if (!activo || --espera > 0) return;
+			espera = intervalo;
+			craftear(mc);
 		});
 
-		CommandRegistrationCallback.EVENT.register((dispatcher, buildContext, selection) -> dispatcher.register(
-				Commands.literal("autodispensador")
+		ClientCommandRegistrationCallback.EVENT.register((dispatcher, buildContext) -> dispatcher.register(
+				ClientCommands.literal("autodispensador")
 						.executes(ctx -> estado(ctx.getSource()))
-						.then(Commands.literal("on").executes(ctx -> { activado = true; guardar(); return estado(ctx.getSource()); }))
-						.then(Commands.literal("off").executes(ctx -> { activado = false; guardar(); return estado(ctx.getSource()); }))
-						.then(Commands.literal("velocidad").then(Commands.argument("ticks", IntegerArgumentType.integer(1, 1200))
+						.then(ClientCommands.literal("velocidad").then(ClientCommands.argument("ticks", IntegerArgumentType.integer(1, 1200))
 								.executes(ctx -> {
 									intervalo = IntegerArgumentType.getInteger(ctx, "ticks");
 									guardar();
@@ -50,45 +68,41 @@ public class AutoDispensador implements ModInitializer {
 								})))));
 	}
 
-	/** Receta del dispensador: 7 roquedo + 1 arco + 1 redstone. Hace como mucho un crafteo por llamada. */
-	private static void craftear(Inventory inv) {
-		int arco = -1;
-		for (int i = 0; i < inv.getContainerSize(); i++) {
-			ItemStack s = inv.getItem(i);
+	/** Un crafteo como mucho por llamada. Sale sin hacer nada si falta algo o si llevas un objeto en el cursor. */
+	private static void craftear(Minecraft mc) {
+		if (mc.player == null || mc.gameMode == null) return;
+		if (!(mc.player.containerMenu instanceof CraftingMenu menu) || !menu.getCarried().isEmpty()) return;
+
+		// Primero recoge el dispensador ya listo y luego rellena para el siguiente
+		// (el servidor calcula el resultado, así que tarda un tick en aparecer).
+		if (menu.getSlot(RESULTADO).getItem().is(Items.DISPENSER)) click(mc, menu, RESULTADO, ContainerInput.QUICK_MOVE);
+
+		for (int hueco : ROQUEDO) if (!rellenar(mc, menu, hueco, Items.COBBLESTONE)) return;
+		if (rellenar(mc, menu, REDSTONE, Items.REDSTONE)) rellenar(mc, menu, ARCO, Items.BOW);
+	}
+
+	/** Si el hueco de la rejilla está vacío, le mete un stack del inventario. false si no se puede. */
+	private static boolean rellenar(Minecraft mc, CraftingMenu menu, int hueco, Item item) {
+		ItemStack actual = menu.getSlot(hueco).getItem();
+		if (!actual.isEmpty()) return actual.is(item);
+		for (int i = 10; i < menu.slots.size(); i++) {
+			ItemStack s = menu.getSlot(i).getItem();
 			// Los arcos encantados no se tocan, para no gastar tu arco bueno.
-			if (s.is(Items.BOW) && !s.isEnchanted()) { arco = i; break; }
+			if (!s.is(item) || (item == Items.BOW && s.isEnchanted())) continue;
+			click(mc, menu, i, ContainerInput.PICKUP);
+			click(mc, menu, hueco, ContainerInput.PICKUP);
+			return true;
 		}
-		if (arco < 0 || contar(inv, Items.COBBLESTONE) < 7 || contar(inv, Items.REDSTONE) < 1) return;
-
-		inv.getItem(arco).shrink(1);
-		quitar(inv, Items.COBBLESTONE, 7);
-		quitar(inv, Items.REDSTONE, 1);
-		inv.placeItemBackInInventory(new ItemStack(Items.DISPENSER));
+		return false;
 	}
 
-	private static int contar(Inventory inv, Item item) {
-		int n = 0;
-		for (int i = 0; i < inv.getContainerSize(); i++) {
-			ItemStack s = inv.getItem(i);
-			if (s.is(item)) n += s.getCount();
-		}
-		return n;
+	private static void click(Minecraft mc, CraftingMenu menu, int slot, ContainerInput tipo) {
+		mc.gameMode.handleInventoryMouseClick(menu.containerId, slot, 0, tipo, mc.player);
 	}
 
-	private static void quitar(Inventory inv, Item item, int cantidad) {
-		for (int i = 0; i < inv.getContainerSize() && cantidad > 0; i++) {
-			ItemStack s = inv.getItem(i);
-			if (!s.is(item)) continue;
-			int n = Math.min(cantidad, s.getCount());
-			s.shrink(n);
-			cantidad -= n;
-		}
-	}
-
-	private int estado(CommandSourceStack source) {
-		String msg = "AutoDispensador: " + (activado ? "ON" : "OFF") + " | 1 dispensador cada " + intervalo
-				+ " ticks (" + (intervalo / 20.0) + " s)";
-		source.sendSuccess(() -> Component.literal(msg), false);
+	private int estado(FabricClientCommandSource source) {
+		source.sendFeedback(Component.literal("AutoDispensador: " + (activo ? "ON" : "OFF") + " (tecla K) | 1 dispensador cada "
+				+ intervalo + " ticks (" + (intervalo / 20.0) + " s)"));
 		return 1;
 	}
 
@@ -97,7 +111,6 @@ public class AutoDispensador implements ModInitializer {
 		try (Reader r = Files.newBufferedReader(CONFIG)) {
 			Properties p = new Properties();
 			p.load(r);
-			activado = Boolean.parseBoolean(p.getProperty("activado", "true"));
 			intervalo = Math.max(1, Integer.parseInt(p.getProperty("intervalo", "10")));
 		} catch (Exception e) {
 			System.err.println("[AutoDispensador] Config inválida, uso valores por defecto: " + e);
@@ -106,7 +119,6 @@ public class AutoDispensador implements ModInitializer {
 
 	private void guardar() {
 		Properties p = new Properties();
-		p.setProperty("activado", String.valueOf(activado));
 		p.setProperty("intervalo", String.valueOf(intervalo));
 		try (Writer w = Files.newBufferedWriter(CONFIG)) {
 			p.store(w, "AutoDispensador - intervalo en ticks (20 = 1 segundo)");

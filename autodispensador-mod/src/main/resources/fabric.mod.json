@@ -3,10 +3,10 @@
 	"id": "autodispensador",
 	"version": "${version}",
 	"name": "AutoDispensador",
-	"description": "Craftea dispensadores automáticamente con los arcos, roquedo y redstone del inventario.",
+	"description": "Con una mesa de crafteo abierta, craftea dispensadores solo con los arcos, roquedo y redstone del inventario. Solo cliente.",
 	"license": "MIT",
-	"environment": "*",
-	"entrypoints": { "main": ["autodispensador.AutoDispensador"] },
+	"environment": "client",
+	"entrypoints": { "client": ["autodispensador.AutoDispensador"] },
 	"depends": {
 		"fabricloader": ">=0.18.4",
 		"minecraft": "~26.1",

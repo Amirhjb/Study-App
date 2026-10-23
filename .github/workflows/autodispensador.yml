@@ -20,3 +20,9 @@ jobs:
         with:
           name: autodispensador-jar
           path: autodispensador-mod/build/libs/autodispensador-1.0.0.jar
+      - name: Probe Minecraft API on failure
+        if: failure()
+        run: |
+          J=$(find ~/.gradle ../autodispensador-mod/.gradle -name 'minecraft-*.jar' 2>/dev/null | grep -v sources | head -1); echo "$J"
+          javap -cp "$J" net.minecraft.client.multiplayer.MultiPlayerGameMode | grep -i -E 'click|container|input'
+          javap -cp "$J" net.minecraft.world.inventory.ContainerInput
