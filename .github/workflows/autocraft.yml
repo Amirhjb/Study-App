@@ -20,13 +20,8 @@ jobs:
         with:
           name: autocraft-jar
           path: autocraft-mod/build/libs/autocraft-1.0.0.jar
-      - name: Probe carried item sync
-        if: always()
+      - name: Probe Minecraft API on failure
+        if: failure()
         run: |
           J=$(find ~/.gradle -name 'minecraft-merged.jar' | head -1)
-          javap -cp "$J" -c -p net.minecraft.client.multiplayer.MultiPlayerGameMode > gm.txt
-          echo "== metodos que llaman a ensureHasSentCarriedItem"; awk '/^  [a-z].*\(/{m=$0} /ensureHasSentCarriedItem/{print m}' gm.txt | sort -u
-          echo "== ensureHasSentCarriedItem"; sed -n '/void ensureHasSentCarriedItem/,/^$/p' gm.txt
-          javap -cp "$J" -c -p net.minecraft.client.Minecraft > mc.txt
-          echo "== Minecraft: quien llama a gameMode.tick"; awk '/^  [a-z].*\(/{m=$0} /MultiPlayerGameMode.tick:/{print m}' mc.txt | sort -u
-          javap -cp "$J" -c -p net.minecraft.world.entity.player.Inventory | sed -n '/public void setSelectedSlot/,/^$/p'
+          javap -cp "$J" -p net.minecraft.network.protocol.game.ServerboundContainerClosePacket || true

@@ -10,7 +10,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.recipebook.RecipeCollection;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
+import net.minecraft.network.protocol.game.ServerboundContainerClosePacket;
 import net.minecraft.util.context.ContextMap;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -170,12 +170,18 @@ public class AutoCraft implements ClientModInitializer {
 			}
 			aviso(mc, llenar(mc, menu, mano, cantidadVenta) ? "venta: poniendo " + cantidadVenta + " en el hueco " + (huecoVenta + 1)
 					: "venta: esperando " + cantidadVenta + " para vender");
+			// Sin ningún menú abierto, se "cierra" el inventario como al pulsar E otra vez. Si no, el anticheat
+			// cree que lo tienes abierto y te deja clavado en el sitio al moverte.
+			if (mc.screen == null) mc.getConnection().send(new ServerboundContainerClosePacket(menu.containerId));
 			return;
 		}
-		// Se avisa al servidor del hueco de la mano justo antes del comando (los paquetes llegan en orden).
-		// Si no, el servidor puede seguir mirando otro hueco y responde "You cannot sell air".
-		inv.setSelectedSlot(huecoVenta);
-		mc.getConnection().send(new ServerboundSetCarriedItemPacket(huecoVenta));
+		// El juego avisa al servidor del hueco de la mano al principio del tick siguiente (una sola vez):
+		// se cambia aquí y el comando sale en el próximo tick. Mandarlo nosotros lo duplicaría (y el anticheat lo pilla).
+		if (inv.getSelectedSlot() != huecoVenta) {
+			inv.setSelectedSlot(huecoVenta);
+			aviso(mc, "venta: cambiando la mano al hueco " + (huecoVenta + 1));
+			return;
+		}
 		mc.getConnection().sendCommand(comando);
 		esperaVenta = 0;
 		aviso(mc, "venta: enviado /" + comando);
