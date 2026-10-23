@@ -20,9 +20,12 @@ jobs:
         with:
           name: autodispensador-jar
           path: autodispensador-mod/build/libs/autodispensador-1.0.0.jar
-      - name: Probe Minecraft API on failure
-        if: failure()
+      - name: Probe Minecraft API
+        if: always()
         run: |
-          J=$(find ~/.gradle ../autodispensador-mod/.gradle -name 'minecraft-*.jar' 2>/dev/null | grep -v sources | head -1); echo "$J"
-          javap -cp "$J" net.minecraft.client.multiplayer.MultiPlayerGameMode | grep -i -E 'click|container|input'
-          javap -cp "$J" net.minecraft.world.inventory.ContainerInput
+          J=$(find ~/.gradle -name 'minecraft-merged.jar' | head -1); echo "$J"
+          javap -cp "$J" -c -p net.minecraft.server.level.ServerPlayer | grep -n -A14 "boolean canDropItems" || true
+          javap -cp "$J" -c -p net.minecraft.world.inventory.AbstractContainerMenu | grep -n -B3 -A3 "canDropItems" || true
+          javap -cp "$J" -c -p net.minecraft.util.TickThrottler || true
+          javap -cp "$J" -c -p net.minecraft.server.network.ServerGamePacketListenerImpl | grep -n -B4 -A2 "TickThrottler" || true
+          javap -cp "$J" -c -p net.minecraft.world.inventory.ResultSlot | grep -n -A30 "getRemainingItems(net" | head -60 || true
