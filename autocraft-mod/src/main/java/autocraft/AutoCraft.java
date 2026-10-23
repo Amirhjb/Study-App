@@ -143,7 +143,14 @@ public class AutoCraft implements ClientModInitializer {
 		if (++esperaVenta < segundosVenta * 20) return;
 		// Solo con la mesa o el inventario (o nada) abierto: nunca hace clics en menús del servidor, como el del /ah.
 		AbstractContainerMenu menu = mc.player.containerMenu;
-		if (!(menu instanceof CraftingMenu || menu instanceof InventoryMenu) || !menu.getCarried().isEmpty()) return;
+		if (!(menu instanceof CraftingMenu || menu instanceof InventoryMenu)) {
+			aviso(mc, "venta en pausa: hay abierto un menú que no es la mesa ni el inventario (" + menu.getClass().getSimpleName() + ")");
+			return;
+		}
+		if (!menu.getCarried().isEmpty()) {
+			aviso(mc, "venta en pausa: hay algo en el cursor");
+			return;
+		}
 		Inventory inv = mc.player.getInventory();
 		int mano = hueco(menu, inv, huecoVenta);
 		if (mano < 0) return;
@@ -158,15 +165,19 @@ public class AutoCraft implements ClientModInitializer {
 				click(mc, menu, mano, 0); // vaciar el hueco y colocar la cantidad justa
 				soltarCursor(mc, menu, mano);
 			}
-			if (!llenar(mc, menu, mano, cantidadVenta)) aviso(mc, "esperando " + cantidadVenta + " para vender");
+			aviso(mc, llenar(mc, menu, mano, cantidadVenta) ? "venta: poniendo " + cantidadVenta + " en el hueco " + (huecoVenta + 1)
+					: "venta: esperando " + cantidadVenta + " para vender");
 			return;
 		}
 		if (inv.getSelectedSlot() != huecoVenta) {
 			inv.setSelectedSlot(huecoVenta);
+			aviso(mc, "venta: cambiando la mano al hueco " + (huecoVenta + 1));
 			return;
 		}
 		mc.getConnection().sendCommand(comando);
 		esperaVenta = 0;
+		aviso(mc, "venta: enviado /" + comando);
+		System.out.println("[AutoCraft] enviado /" + comando + " con " + s.getCount() + " " + clave(s.getItem()) + " en la mano");
 	}
 
 	/** Pone {@code n} del objetivo en el hueco vacío {@code destino}, sacándolos de otros huecos. false si no hay bastantes. */
