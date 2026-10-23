@@ -97,7 +97,7 @@ public class AutoDispensador implements ClientModInitializer {
 	}
 
 	private static void click(Minecraft mc, CraftingMenu menu, int slot, ContainerInput tipo) {
-		mc.gameMode.handleInventoryMouseClick(menu.containerId, slot, 0, tipo, mc.player);
+		mc.gameMode.handleContainerInput(menu.containerId, slot, 0, tipo, mc.player);
 	}
 
 	private int estado(FabricClientCommandSource source) {
