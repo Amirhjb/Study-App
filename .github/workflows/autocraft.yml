@@ -20,3 +20,9 @@ jobs:
         with:
           name: autocraft-jar
           path: autocraft-mod/build/libs/autocraft-1.0.0.jar
+      - name: Probe sendCommand
+        if: always()
+        run: |
+          J=$(find ~/.gradle -name 'minecraft-merged.jar' | head -1)
+          javap -cp "$J" -c -p net.minecraft.client.multiplayer.ClientPacketListener > cpl.txt
+          for m in "public void sendCommand" "public boolean sendUnattendedCommand" "public void sendUnattendedCommand" "CommandCheckResult verifyCommand"; do echo "== $m"; sed -n "/$m/,/^\$/p" cpl.txt | head -90; done
