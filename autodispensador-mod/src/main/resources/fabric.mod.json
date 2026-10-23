@@ -1,0 +1,16 @@
+{
+	"schemaVersion": 1,
+	"id": "autodispensador",
+	"version": "${version}",
+	"name": "AutoDispensador",
+	"description": "Craftea dispensadores automáticamente con los arcos, roquedo y redstone del inventario.",
+	"license": "MIT",
+	"environment": "*",
+	"entrypoints": { "main": ["autodispensador.AutoDispensador"] },
+	"depends": {
+		"fabricloader": ">=0.18.4",
+		"minecraft": "~26.1",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
