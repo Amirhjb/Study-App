@@ -20,22 +20,8 @@ jobs:
         with:
           name: autodispensador-jar
           path: autodispensador-mod/build/libs/autodispensador-1.0.0.jar
-      - name: Probe Minecraft API
-        if: always()
+      - name: Probe Minecraft API on failure
+        if: failure()
         run: |
           J=$(find ~/.gradle -name 'minecraft-merged.jar' | head -1)
-          javap -cp "$J" -p 'net.minecraft.client.gui.components.StringWidget' | grep -v ' lambda\$' || true
-          javap -cp "$J" -p 'net.minecraft.client.gui.components.EditBox' | grep -v ' lambda\$' || true
-          javap -cp "$J" -p 'net.minecraft.client.gui.components.Button' | grep -v ' lambda\$' || true
-          javap -cp "$J" -p 'net.minecraft.client.gui.components.Button$Builder' | grep -v ' lambda\$' || true
-          javap -cp "$J" -p 'net.minecraft.client.gui.screens.Screen' | grep -v ' lambda\$' || true
-          javap -cp "$J" -p 'net.minecraft.client.ClientRecipeBook' | grep -v ' lambda\$' || true
-          javap -cp "$J" -p 'net.minecraft.client.gui.screens.recipebook.RecipeCollection' | grep -v ' lambda\$' || true
-          javap -cp "$J" -p 'net.minecraft.world.item.crafting.display.RecipeDisplayEntry' | grep -v ' lambda\$' || true
-          javap -cp "$J" -p 'net.minecraft.world.item.crafting.display.RecipeDisplay' | grep -v ' lambda\$' || true
-          javap -cp "$J" -p 'net.minecraft.world.item.crafting.display.SlotDisplay' | grep -v ' lambda\$' || true
-          javap -cp "$J" -p 'net.minecraft.world.item.crafting.display.SlotDisplayContext' | grep -v ' lambda\$' || true
-          javap -cp "$J" -p 'net.minecraft.world.item.crafting.display.ShapedCraftingRecipeDisplay' | grep -v ' lambda\$' || true
-          javap -cp "$J" -p 'net.minecraft.world.item.crafting.display.ShapelessCraftingRecipeDisplay' | grep -v ' lambda\$' || true
-          javap -cp "$J" -p 'net.minecraft.client.player.LocalPlayer' | grep -v ' lambda\$' || true
-          javap -cp "$J" -p 'net.minecraft.world.entity.player.Inventory' | grep -v ' lambda\$' || true
+          javap -cp "$J" -p net.minecraft.client.gui.screens.Screen | grep -E "minecraft|font|width|height" || true
