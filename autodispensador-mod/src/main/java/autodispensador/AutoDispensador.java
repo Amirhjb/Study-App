@@ -37,7 +37,7 @@ public class AutoDispensador implements ClientModInitializer {
 	private static final int RESULTADO = 0, ARCO = 5, REDSTONE = 8;
 	private static final int[] ROQUEDO = {1, 2, 3, 4, 6, 7, 9};
 
-	private boolean activo = false;
+	private boolean activo = true; // K lo apaga/enciende (fuera de menús: Minecraft no lee teclas con un menú abierto)
 	private int intervalo = 10; // ticks entre crafteos (20 ticks = 1 segundo)
 	private int espera = 0;
 
@@ -75,29 +75,43 @@ public class AutoDispensador implements ClientModInitializer {
 
 		// Primero recoge el dispensador ya listo y luego rellena para el siguiente
 		// (el servidor calcula el resultado, así que tarda un tick en aparecer).
-		if (menu.getSlot(RESULTADO).getItem().is(Items.DISPENSER)) click(mc, menu, RESULTADO, ContainerInput.QUICK_MOVE);
+		if (menu.getSlot(RESULTADO).getItem().is(Items.DISPENSER)) mc.gameMode.handleContainerInput(menu.containerId, RESULTADO, 0, ContainerInput.QUICK_MOVE, mc.player);
 
-		for (int hueco : ROQUEDO) if (!rellenar(mc, menu, hueco, Items.COBBLESTONE)) return;
-		if (rellenar(mc, menu, REDSTONE, Items.REDSTONE)) rellenar(mc, menu, ARCO, Items.BOW);
+		if (rellenar(mc, menu, ROQUEDO, Items.COBBLESTONE) && rellenar(mc, menu, new int[]{REDSTONE}, Items.REDSTONE)) {
+			rellenar(mc, menu, new int[]{ARCO}, Items.BOW);
+		}
 	}
 
-	/** Si el hueco de la rejilla está vacío, le mete un stack del inventario. false si no se puede. */
-	private static boolean rellenar(Minecraft mc, CraftingMenu menu, int hueco, Item item) {
-		ItemStack actual = menu.getSlot(hueco).getItem();
-		if (!actual.isEmpty()) return actual.is(item);
-		for (int i = 10; i < menu.slots.size(); i++) {
+	/**
+	 * Pone 1 objeto en cada hueco vacío de la rejilla, como clic derecho: coge un stack del inventario,
+	 * reparte y devuelve el resto a su sitio. false si algún hueco tiene otra cosa o falta material.
+	 */
+	private static boolean rellenar(Minecraft mc, CraftingMenu menu, int[] huecos, Item item) {
+		for (int h : huecos) {
+			ItemStack actual = menu.getSlot(h).getItem();
+			if (!actual.isEmpty() && !actual.is(item)) return false;
+		}
+		for (int i = 10; i < menu.slots.size() && hayHueco(menu, huecos); i++) {
 			ItemStack s = menu.getSlot(i).getItem();
 			// Los arcos encantados no se tocan, para no gastar tu arco bueno.
 			if (!s.is(item) || (item == Items.BOW && s.isEnchanted())) continue;
-			click(mc, menu, i, ContainerInput.PICKUP);
-			click(mc, menu, hueco, ContainerInput.PICKUP);
-			return true;
+			click(mc, menu, i, 0); // coger el stack
+			for (int h : huecos) {
+				if (menu.getCarried().isEmpty()) break;
+				if (menu.getSlot(h).getItem().isEmpty()) click(mc, menu, h, 1); // soltar 1
+			}
+			if (!menu.getCarried().isEmpty()) click(mc, menu, i, 0); // devolver el resto
 		}
+		return !hayHueco(menu, huecos);
+	}
+
+	private static boolean hayHueco(CraftingMenu menu, int[] huecos) {
+		for (int h : huecos) if (menu.getSlot(h).getItem().isEmpty()) return true;
 		return false;
 	}
 
-	private static void click(Minecraft mc, CraftingMenu menu, int slot, ContainerInput tipo) {
-		mc.gameMode.handleContainerInput(menu.containerId, slot, 0, tipo, mc.player);
+	private static void click(Minecraft mc, CraftingMenu menu, int slot, int boton) {
+		mc.gameMode.handleContainerInput(menu.containerId, slot, boton, ContainerInput.PICKUP, mc.player);
 	}
 
 	private int estado(FabricClientCommandSource source) {
