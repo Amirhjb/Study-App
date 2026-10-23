@@ -23,9 +23,5 @@ jobs:
       - name: Probe Minecraft API
         if: always()
         run: |
-          J=$(find ~/.gradle -name 'minecraft-merged.jar' | head -1); echo "$J"
-          javap -cp "$J" -c -p net.minecraft.server.level.ServerPlayer | grep -n -A14 "boolean canDropItems" || true
-          javap -cp "$J" -c -p net.minecraft.world.inventory.AbstractContainerMenu | grep -n -B3 -A3 "canDropItems" || true
-          javap -cp "$J" -c -p net.minecraft.util.TickThrottler || true
-          javap -cp "$J" -c -p net.minecraft.server.network.ServerGamePacketListenerImpl | grep -n -B4 -A2 "TickThrottler" || true
-          javap -cp "$J" -c -p net.minecraft.world.inventory.ResultSlot | grep -n -A30 "getRemainingItems(net" | head -60 || true
+          J=$(find ~/.gradle -name 'minecraft-merged.jar' | head -1)
+          javap -cp "$J" -c -p net.minecraft.client.player.LocalPlayer | grep -n -A8 "void sendOverlayMessage" || true

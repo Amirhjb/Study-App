@@ -43,7 +43,7 @@ public class AutoDispensador implements ClientModInitializer {
 	private boolean activo = true; // K lo apaga/enciende (fuera de menús: Minecraft no lee teclas con un menú abierto)
 	private int intervalo = 10; // ticks entre crafteos (20 ticks = 1 segundo)
 	private int reserva = 1; // cuántos de cada ingrediente se dejan siempre en el inventario
-	private int espera = 0;
+	private int espera = 0; // ticks desde el último crafteo
 	private int atascado = 0; // ticks con algo en el cursor
 
 	@Override
@@ -57,9 +57,7 @@ public class AutoDispensador implements ClientModInitializer {
 				activo = !activo;
 				if (mc.player != null) mc.player.sendOverlayMessage(Component.literal("AutoDispensador: " + (activo ? "ON" : "OFF")));
 			}
-			if (!activo || --espera > 0) return;
-			espera = intervalo;
-			craftear(mc);
+			if (activo) craftear(mc);
 		});
 
 		ClientCommandRegistrationCallback.EVENT.register((dispatcher, buildContext) -> dispatcher.register(
@@ -79,27 +77,32 @@ public class AutoDispensador implements ClientModInitializer {
 								})))));
 	}
 
-	/** Un crafteo como mucho por llamada. */
+	/** Se llama cada tick: rellena en cuanto puede y tira un dispensador cada {@code intervalo} ticks. */
 	private void craftear(Minecraft mc) {
 		if (mc.player == null || mc.gameMode == null) return;
 		if (!(mc.player.containerMenu instanceof CraftingMenu menu)) return;
 
-		// Algo en el cursor durante 1 s (desincronización con el servidor, p. ej. recogiste un arco
+		// Algo en el cursor durante medio segundo (desincronización con el servidor, p. ej. recogiste un arco
 		// justo en el hueco que el mod acababa de vaciar): se devuelve al inventario y se sigue.
 		if (!menu.getCarried().isEmpty()) {
-			atascado += intervalo;
-			if (atascado < 20) return;
+			if (++atascado < 10) return;
 			soltarCursor(mc, menu);
-			atascado = 0;
-		} else atascado = 0;
+		}
+		atascado = 0;
 
 		// Primero tira el dispensador ya listo y luego rellena para el siguiente
 		// (el servidor calcula el resultado, así que tarda un tick en aparecer).
-		if (menu.getSlot(RESULTADO).getItem().is(Items.DISPENSER)) input(mc, menu, RESULTADO, 0, ContainerInput.THROW);
+		if (++espera >= intervalo && menu.getSlot(RESULTADO).getItem().is(Items.DISPENSER)) {
+			input(mc, menu, RESULTADO, 0, ContainerInput.THROW);
+			espera = 0;
+		}
 
 		limpiar(mc, menu);
-		if (rellenar(mc, menu, ROQUEDO, Items.COBBLESTONE) && rellenar(mc, menu, new int[]{REDSTONE}, Items.REDSTONE)) {
-			rellenar(mc, menu, new int[]{ARCO}, Items.BOW);
+		String falta = !rellenar(mc, menu, ROQUEDO, Items.COBBLESTONE) ? "roquedo"
+				: !rellenar(mc, menu, new int[]{REDSTONE}, Items.REDSTONE) ? "redstone"
+				: !rellenar(mc, menu, new int[]{ARCO}, Items.BOW) ? "arcos sin encantar" : null;
+		if (falta != null) {
+			mc.player.sendOverlayMessage(Component.literal("AutoDispensador: esperando " + falta + " (reserva " + reserva + ")"));
 		}
 	}
 
