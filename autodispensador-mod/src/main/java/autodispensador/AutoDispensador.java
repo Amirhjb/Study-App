@@ -36,11 +36,15 @@ public class AutoDispensador implements ClientModInitializer {
 	// Huecos del CraftingMenu: 0 = resultado, 1-9 = rejilla 3x3, 10-45 = inventario.
 	private static final int RESULTADO = 0, ARCO = 5, REDSTONE = 8;
 	private static final int[] ROQUEDO = {1, 2, 3, 4, 6, 7, 9};
+	// Huecos 10-36 = inventario principal, 37-45 = barra rápida (esa no se toca, ahí guardas lo tuyo).
+	private static final int FIN_PRINCIPAL = 37, STACKS_ROQUEDO = 7, STACKS_REDSTONE = 3;
+	private static final int ARCOS = FIN_PRINCIPAL - 10 - STACKS_ROQUEDO - STACKS_REDSTONE; // 17
 
 	private boolean activo = true; // K lo apaga/enciende (fuera de menús: Minecraft no lee teclas con un menú abierto)
 	private int intervalo = 10; // ticks entre crafteos (20 ticks = 1 segundo)
 	private int reserva = 1; // cuántos de cada ingrediente se dejan siempre en el inventario
 	private int espera = 0;
+	private int atascado = 0; // ticks con algo en el cursor
 
 	@Override
 	public void onInitializeClient() {
@@ -75,15 +79,25 @@ public class AutoDispensador implements ClientModInitializer {
 								})))));
 	}
 
-	/** Un crafteo como mucho por llamada. Sale sin hacer nada si falta algo o si llevas un objeto en el cursor. */
+	/** Un crafteo como mucho por llamada. */
 	private void craftear(Minecraft mc) {
 		if (mc.player == null || mc.gameMode == null) return;
-		if (!(mc.player.containerMenu instanceof CraftingMenu menu) || !menu.getCarried().isEmpty()) return;
+		if (!(mc.player.containerMenu instanceof CraftingMenu menu)) return;
 
-		// Primero recoge el dispensador ya listo y luego rellena para el siguiente
+		// Algo en el cursor durante 1 s (desincronización con el servidor, p. ej. recogiste un arco
+		// justo en el hueco que el mod acababa de vaciar): se devuelve al inventario y se sigue.
+		if (!menu.getCarried().isEmpty()) {
+			atascado += intervalo;
+			if (atascado < 20) return;
+			soltarCursor(mc, menu);
+			atascado = 0;
+		} else atascado = 0;
+
+		// Primero tira el dispensador ya listo y luego rellena para el siguiente
 		// (el servidor calcula el resultado, así que tarda un tick en aparecer).
-		if (menu.getSlot(RESULTADO).getItem().is(Items.DISPENSER)) mc.gameMode.handleContainerInput(menu.containerId, RESULTADO, 0, ContainerInput.QUICK_MOVE, mc.player);
+		if (menu.getSlot(RESULTADO).getItem().is(Items.DISPENSER)) input(mc, menu, RESULTADO, 0, ContainerInput.THROW);
 
+		limpiar(mc, menu);
 		if (rellenar(mc, menu, ROQUEDO, Items.COBBLESTONE) && rellenar(mc, menu, new int[]{REDSTONE}, Items.REDSTONE)) {
 			rellenar(mc, menu, new int[]{ARCO}, Items.BOW);
 		}
@@ -91,15 +105,17 @@ public class AutoDispensador implements ClientModInitializer {
 
 	/**
 	 * Pone 1 objeto en cada hueco vacío de la rejilla, como clic derecho: coge un stack del inventario,
-	 * reparte y devuelve el resto a su sitio. false si algún hueco tiene otra cosa o falta material.
+	 * reparte y devuelve el resto a su sitio. Si en la rejilla hay algo que no toca, lo saca. false si falta material.
 	 * Nunca baja del mínimo de {@code reserva} en el inventario.
 	 */
 	private boolean rellenar(Minecraft mc, CraftingMenu menu, int[] huecos, Item item) {
 		int faltan = 0;
 		for (int h : huecos) {
-			ItemStack actual = menu.getSlot(h).getItem();
-			if (actual.isEmpty()) faltan++;
-			else if (!actual.is(item)) return false;
+			if (!menu.getSlot(h).getItem().isEmpty() && !usable(menu.getSlot(h).getItem(), item)) {
+				click(mc, menu, h, 0); // algo que no toca en la rejilla: fuera
+				soltarCursor(mc, menu);
+			}
+			if (menu.getSlot(h).getItem().isEmpty()) faltan++;
 		}
 		if (faltan == 0) return true;
 
@@ -132,8 +148,37 @@ public class AutoDispensador implements ClientModInitializer {
 		return false;
 	}
 
+	/**
+	 * Inventario principal: 7 huecos reservados para roquedo, 3 para redstone y el resto (17) para arcos sin encantar.
+	 * Lo que se pase de su cupo y todo lo demás (dispensadores, flechas, huesos...) se tira, para que siempre entre material.
+	 */
+	private static void limpiar(Minecraft mc, CraftingMenu menu) {
+		int roquedo = 0, redstone = 0, arcos = 0;
+		for (int i = 10; i < FIN_PRINCIPAL; i++) {
+			ItemStack s = menu.getSlot(i).getItem();
+			boolean vale = s.isEmpty() || (usable(s, Items.BOW) && ++arcos <= ARCOS)
+					|| (s.is(Items.COBBLESTONE) && ++roquedo <= STACKS_ROQUEDO)
+					|| (s.is(Items.REDSTONE) && ++redstone <= STACKS_REDSTONE);
+			if (!vale) input(mc, menu, i, 1, ContainerInput.THROW); // Ctrl+Q: tira el stack entero
+		}
+	}
+
+	/** Deja lo del cursor en el inventario (juntándolo con su stack o en un hueco libre); si no cabe, lo tira. */
+	private static void soltarCursor(Minecraft mc, CraftingMenu menu) {
+		for (int i = 10; i < menu.slots.size() && !menu.getCarried().isEmpty(); i++) {
+			ItemStack s = menu.getSlot(i).getItem();
+			boolean cabe = s.isEmpty() || (ItemStack.isSameItemSameComponents(s, menu.getCarried()) && s.getCount() < s.getMaxStackSize());
+			if (cabe) click(mc, menu, i, 0);
+		}
+		if (!menu.getCarried().isEmpty()) click(mc, menu, -999, 0); // clic fuera de la ventana = tirar
+	}
+
 	private static void click(Minecraft mc, CraftingMenu menu, int slot, int boton) {
-		mc.gameMode.handleContainerInput(menu.containerId, slot, boton, ContainerInput.PICKUP, mc.player);
+		input(mc, menu, slot, boton, ContainerInput.PICKUP);
+	}
+
+	private static void input(Minecraft mc, CraftingMenu menu, int slot, int boton, ContainerInput tipo) {
+		mc.gameMode.handleContainerInput(menu.containerId, slot, boton, tipo, mc.player);
 	}
 
 	private int estado(FabricClientCommandSource source) {
