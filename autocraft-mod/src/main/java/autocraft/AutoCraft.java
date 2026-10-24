@@ -75,6 +75,8 @@ public class AutoCraft implements ClientModInitializer {
 	int huecoVenta = 8; // hueco de la barra rápida (0-8) donde se pone lo que se vende
 	private int esperaVenta = 0;
 
+	final Sell sell = new Sell();
+
 	private int espera = 0; // ticks desde el último crafteo
 	private int atascado = 0; // ticks con algo en el cursor
 	private Receta receta;
@@ -93,6 +95,7 @@ public class AutoCraft implements ClientModInitializer {
 			}
 			if (activo) craftear(mc);
 			if (vender) vender(mc);
+			if (sell.activo) sell.tick(mc);
 		});
 	}
 
@@ -353,15 +356,15 @@ public class AutoCraft implements ClientModInitializer {
 		if (!menu.getCarried().isEmpty()) click(mc, menu, -999, 0); // clic fuera de la ventana = tirar
 	}
 
-	private static void click(Minecraft mc, AbstractContainerMenu menu, int slot, int boton) {
+	static void click(Minecraft mc, AbstractContainerMenu menu, int slot, int boton) {
 		input(mc, menu, slot, boton, ContainerInput.PICKUP);
 	}
 
-	private static void input(Minecraft mc, AbstractContainerMenu menu, int slot, int boton, ContainerInput tipo) {
+	static void input(Minecraft mc, AbstractContainerMenu menu, int slot, int boton, ContainerInput tipo) {
 		mc.gameMode.handleContainerInput(menu.containerId, slot, boton, tipo, mc.player);
 	}
 
-	private static void aviso(Minecraft mc, String texto) {
+	static void aviso(Minecraft mc, String texto) {
 		mc.player.sendOverlayMessage(Component.literal("AutoCraft: " + texto));
 	}
 
@@ -498,6 +501,7 @@ public class AutoCraft implements ClientModInitializer {
 			cantidadVenta = Math.clamp(Integer.parseInt(p.getProperty("cantidadVenta", "1")), 1, 64);
 			segundosVenta = Math.max(1, Integer.parseInt(p.getProperty("segundosVenta", "1")));
 			huecoVenta = Math.clamp(Integer.parseInt(p.getProperty("huecoVenta", "8")), 0, 8);
+			sell.cargar(p);
 			for (String k : p.stringPropertyNames()) {
 				if (k.startsWith("cupo.")) cupos.put(k.substring(5), Integer.parseInt(p.getProperty(k)));
 			}
@@ -522,6 +526,7 @@ public class AutoCraft implements ClientModInitializer {
 		p.setProperty("segundosVenta", String.valueOf(segundosVenta));
 		p.setProperty("huecoVenta", String.valueOf(huecoVenta));
 		cupos.forEach((k, v) -> p.setProperty("cupo." + k, String.valueOf(v)));
+		sell.guardar(p);
 		try (Writer w = Files.newBufferedWriter(CONFIG)) {
 			p.store(w, "AutoCraft - intervalo en ticks (20 = 1 segundo)");
 		} catch (Exception e) {

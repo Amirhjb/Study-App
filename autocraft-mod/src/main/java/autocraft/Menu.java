@@ -21,7 +21,7 @@ class Menu extends Screen {
 	private final AutoCraft mod;
 	private final List<AutoCraft.Opcion> opciones; // lo que se puede craftear
 	private final List<AutoCraft.Opcion> todos = AutoCraft.todosLosObjetos(); // lo que se puede vender
-	private boolean venta = false; // pestaña: crafteo o venta
+	private int pestaña = 0; // 0 crafteo, 1 subasta (/ah sell), 2 sell (menú de /sell)
 
 	Menu(AutoCraft mod, List<AutoCraft.Opcion> opciones) {
 		super(Component.literal("AutoCraft"));
@@ -33,13 +33,19 @@ class Menu extends Screen {
 	@Override
 	protected void init() {
 		int izq = width / 2 - ANCHO - 5, der = width / 2 + 5, y = 30;
-		Button crafteo = addRenderableWidget(Button.builder(Component.literal("Crafteo"), b -> pestaña(false)).bounds(width / 2 - 100, 4, 98, 20).build());
-		Button vender = addRenderableWidget(Button.builder(Component.literal("Venta"), b -> pestaña(true)).bounds(width / 2 + 2, 4, 98, 20).build());
-		crafteo.active = venta;
-		vender.active = !venta;
+		String[] nombres = {"Crafteo", "Subasta (/ah)", "Sell (/sell)"};
+		for (int i = 0; i < nombres.length; i++) {
+			int n = i;
+			Button b = addRenderableWidget(Button.builder(Component.literal(nombres[i]), x -> pestaña(n)).bounds(width / 2 - 151 + 101 * i, 4, 100, 20).build());
+			b.active = pestaña != i;
+		}
 		AutoCraft.Receta receta = mod.receta(minecraft);
-		if (venta) {
+		if (pestaña == 1) {
 			initVenta(izq, der, y, receta);
+			return;
+		}
+		if (pestaña == 2) {
+			initSell(izq, der, y);
 			return;
 		}
 
@@ -90,8 +96,38 @@ class Menu extends Screen {
 		caja.setResponder(v -> mod.comando = v.trim().replaceFirst("^/", ""));
 	}
 
-	private void pestaña(boolean venta) {
-		this.venta = venta;
+	private void initSell(int izq, int der, int y) {
+		Sell sell = mod.sell;
+		addRenderableWidget(alternar(izq, y, "Sell automático", () -> sell.activo, v -> sell.activo = v));
+		Supplier<Component> modo = () -> Component.literal(sell.todo ? "Vender: todo el inventario" : "Vender: solo los elegidos");
+		addRenderableWidget(Button.builder(modo.get(), b -> {
+			sell.todo = !sell.todo;
+			b.setMessage(modo.get());
+		}).bounds(izq, y += 24, ANCHO, 20).build());
+		fila(izq, y += 24, () -> "Cada " + sell.segundos + " s", d -> sell.segundos = Math.clamp(sell.segundos + d, 1, 3600));
+		fila(izq, y += 24, () -> "Entre clics: " + (sell.ticksEntreClics == 0 ? "de golpe" : sell.ticksEntreClics + " ticks"),
+				d -> sell.ticksEntreClics = Math.clamp(sell.ticksEntreClics + d, 0, 20));
+
+		y = 30;
+		addRenderableWidget(new StringWidget(der, y + 6, ANCHO, 12, Component.literal("Comando:"), font));
+		EditBox caja = addRenderableWidget(new EditBox(font, der, y += 20, ANCHO, 20, Component.literal("Comando")));
+		caja.setMaxLength(100);
+		caja.setValue("/" + sell.comando);
+		caja.setResponder(v -> sell.comando = v.trim().replaceFirst("^/", ""));
+		String lista = sell.elegidos.stream().map(k -> nombre(k).getString()).reduce((a, b) -> a + ", " + b).orElse("ninguno");
+		addRenderableWidget(new StringWidget(der, y += 28, ANCHO, 12,
+				Component.literal("Elegidos (" + sell.elegidos.size() + "): " + lista), font));
+		buscador(der, y += 14, todos, k -> {
+			if (!sell.elegidos.remove(k)) sell.elegidos.add(k); // pulsar otra vez lo quita
+		});
+		addRenderableWidget(Button.builder(Component.literal("Quitar todos"), b -> {
+			sell.elegidos.clear();
+			rebuildWidgets();
+		}).bounds(der, y + 22 * (MAX_RESULTADOS + 1) + 4, ANCHO, 20).build());
+	}
+
+	private void pestaña(int n) {
+		this.pestaña = n;
 		rebuildWidgets();
 	}
 
