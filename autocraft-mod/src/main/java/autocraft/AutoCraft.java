@@ -62,7 +62,7 @@ public class AutoCraft implements ClientModInitializer {
 	private static final int RESULTADO = 0, FIN_PRINCIPAL = 37, HUECOS_PRINCIPAL = 27;
 
 	/** Un ingrediente de la receta: en qué huecos de la rejilla va y qué objetos valen. */
-	record Grupo(String clave, Component nombre, List<Integer> huecos, Set<Item> items, int cupoPorDefecto) {}
+	record Grupo(String clave, Component nombre, List<Integer> huecos, Set<Item> items, int cupoPorDefecto, int maxStack) {}
 	record Receta(String objetivo, Component nombre, ItemStack resultado, List<Grupo> grupos, boolean[] usados) {}
 	record Opcion(String clave, Component nombre) {}
 
@@ -207,6 +207,9 @@ public class AutoCraft implements ClientModInitializer {
 				soltarCursor(mc, menu);
 			}
 		}
+		// Si todo se apila, la rejilla va llena de stacks y cada clic saca todo lo que dé (Ctrl+Q / Mayús+clic).
+		// Si algo no se apila (el arco del dispensador), en su hueco cabe 1 y cada clic solo puede sacar 1.
+		boolean porStacksRapido = r.grupos().stream().allMatch(g -> g.maxStack() > 1);
 		int tope = Math.max(1, clicsPorSegundo * intervalo / 20);
 		clics = 0;
 		while (clics < tope) {
@@ -217,7 +220,16 @@ public class AutoCraft implements ClientModInitializer {
 				}
 			}
 			if (menu.getSlot(RESULTADO).getItem().isEmpty()) menu.getSlot(RESULTADO).set(r.resultado().copy());
-			sacar(mc, menu, 0); // de uno en uno: así lo que prevé el cliente coincide con el servidor
+			if (!porStacksRapido) {
+				sacar(mc, menu, 0);
+				continue;
+			}
+			// El servidor craftea de golpe tantas veces como el hueco con menos (m); el cliente solo prevé 1,
+			// así que se le descuentan los otros m-1 para seguir la tanda con la rejilla como está de verdad.
+			int m = Integer.MAX_VALUE;
+			for (int h = 1; h <= 9; h++) if (r.usados()[h]) m = Math.min(m, menu.getSlot(h).getItem().getCount());
+			sacar(mc, menu, 1);
+			for (int h = 1; h <= 9; h++) if (r.usados()[h]) menu.getSlot(h).getItem().shrink(m - 1);
 		}
 	}
 
@@ -552,7 +564,7 @@ public class AutoCraft implements ClientModInitializer {
 				for (ItemStack s : p) items.add(s.getItem());
 				double peso = (double) entrada.getValue().size() / p.get(0).getMaxStackSize();
 				int cupo = Math.max(1, (int) Math.round(HUECOS_PRINCIPAL * peso / total));
-				grupos.add(new Grupo(clave(p.get(0).getItem()), p.get(0).getHoverName(), entrada.getValue(), items, cupo));
+				grupos.add(new Grupo(clave(p.get(0).getItem()), p.get(0).getHoverName(), entrada.getValue(), items, cupo, p.get(0).getMaxStackSize()));
 				for (int h : entrada.getValue()) usados[h] = true;
 			}
 			return new Receta(objetivo, res.getHoverName(), res.copy(), grupos, usados);
