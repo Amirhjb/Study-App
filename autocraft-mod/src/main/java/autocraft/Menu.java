@@ -58,20 +58,24 @@ class Menu extends Screen {
 		addRenderableWidget(alternar(izq, y += 24, "Tirar el resultado", () -> mod.tirar, v -> mod.tirar = v));
 		addRenderableWidget(alternar(izq, y += 24, "Por stacks", () -> mod.porStacks, v -> mod.porStacks = v));
 		addRenderableWidget(alternar(izq, y += 24, "Limpiar inventario", () -> mod.limpiar, v -> mod.limpiar = v));
-
-		if (receta != null) {
-			addRenderableWidget(new StringWidget(izq, y += 28, ANCHO, 12, Component.literal("Huecos por ingrediente:"), font));
-			y -= 10;
-			for (AutoCraft.Grupo g : receta.grupos()) {
-				fila(izq, y += 22, () -> g.nombre().getString() + ": " + mod.cupo(g), d -> mod.ponerCupo(g, mod.cupo(g) + d));
-			}
-		}
+		addRenderableWidget(alternar(izq, y += 24, "Modo rápido", () -> mod.rapido, v -> mod.rapido = v));
+		fila(izq, y += 24, () -> "Rápido: " + mod.clicsPorSegundo + " clics/s",
+				d -> mod.clicsPorSegundo = Math.clamp(mod.clicsPorSegundo + 50 * d, 50, 2000));
 
 		// Derecha: qué craftear
 		y = 30;
 		Component actual = receta != null ? receta.nombre() : Component.literal(mod.objetivo + " (receta no desbloqueada)");
 		addRenderableWidget(new StringWidget(der, y + 6, ANCHO, 12, Component.literal("Creando: ").append(actual), font));
 		setInitialFocus(buscador(der, y + 20, opciones, mod::elegir));
+
+		if (receta != null) {
+			y += 20 + 22 * MAX_RESULTADOS + 8;
+			addRenderableWidget(new StringWidget(der, y += 20, ANCHO, 12, Component.literal("Huecos por ingrediente:"), font));
+			y -= 10;
+			for (AutoCraft.Grupo g : receta.grupos()) {
+				fila(der, y += 22, () -> g.nombre().getString() + ": " + mod.cupo(g), d -> mod.ponerCupo(g, mod.cupo(g) + d));
+			}
+		}
 	}
 
 	private void initVenta(int izq, int der, int y, AutoCraft.Receta receta) {

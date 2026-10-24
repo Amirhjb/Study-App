@@ -24,4 +24,4 @@ jobs:
         if: failure()
         run: |
           J=$(find ~/.gradle -name 'minecraft-merged.jar' | head -1)
-          javap -cp "$J" -p net.minecraft.client.KeyMapping | grep -i -E "match|key" || true
+          javap -cp "$J" -p net.minecraft.world.inventory.Slot | grep -E "void set|setByPlayer" || true

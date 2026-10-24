@@ -63,7 +63,7 @@ public class AutoCraft implements ClientModInitializer {
 
 	/** Un ingrediente de la receta: en qué huecos de la rejilla va y qué objetos valen. */
 	record Grupo(String clave, Component nombre, List<Integer> huecos, Set<Item> items, int cupoPorDefecto) {}
-	record Receta(String objetivo, Component nombre, List<Grupo> grupos, boolean[] usados) {}
+	record Receta(String objetivo, Component nombre, ItemStack resultado, List<Grupo> grupos, boolean[] usados) {}
 	record Opcion(String clave, Component nombre) {}
 
 	boolean activo = true;
@@ -73,6 +73,9 @@ public class AutoCraft implements ClientModInitializer {
 	boolean tirar = true; // tirar el resultado (si no, o si se vende, se guarda; si no cabe, se tira igual)
 	boolean limpiar = true; // tirar del inventario principal lo que no sea ingrediente o pase de su cupo
 	boolean porStacks = false; // llenar la rejilla con stacks y sacar todo de golpe (Mayús+clic / Ctrl+Q)
+	boolean rapido = false; // encadenar muchos crafteos por tanda sin esperar al servidor
+	int clicsPorSegundo = 300; // tope de clics en modo rápido (muchos servidores echan hacia 500 paquetes/s)
+	private static int clics = 0; // clics enviados en la tanda actual
 	private final Map<String, Integer> cupos = new HashMap<>(); // "objetivo|ingrediente" -> huecos
 
 	boolean vender = false;
@@ -161,13 +164,18 @@ public class AutoCraft implements ClientModInitializer {
 		}
 		atascado = 0;
 
+		if (rapido) {
+			if (++espera < intervalo) return;
+			espera = 0;
+			if (limpiar) limpiar(mc, menu, r);
+			tanda(mc, menu, r);
+			return;
+		}
+
 		// Primero saca el resultado ya listo y luego rellena para el siguiente
 		// (el servidor calcula el resultado, así que tarda un tick en aparecer).
-		ItemStack resultado = menu.getSlot(RESULTADO).getItem();
-		if (++espera >= intervalo && !resultado.isEmpty()) {
-			// QUICK_MOVE (Mayús+clic) craftea todo lo que dé la rejilla; THROW con botón 1 (Ctrl+Q) también.
-			if (seQueda() && cabe(menu, resultado)) input(mc, menu, RESULTADO, 0, ContainerInput.QUICK_MOVE);
-			else input(mc, menu, RESULTADO, porStacks ? 1 : 0, ContainerInput.THROW);
+		if (++espera >= intervalo && !menu.getSlot(RESULTADO).getItem().isEmpty()) {
+			sacar(mc, menu, porStacks ? 1 : 0);
 			espera = 0;
 		}
 
@@ -184,6 +192,39 @@ public class AutoCraft implements ClientModInitializer {
 				return;
 			}
 		}
+	}
+
+	/**
+	 * Modo rápido: rellena, saca el resultado y repite, todo seguido y sin esperar a que el servidor confirme
+	 * cada crafteo. El servidor procesa los clics en orden y calcula el resultado al instante, así que aquí
+	 * se adelanta el resultado en el hueco para poder seguir. Para cuando falta material o se gasta el
+	 * tope de clics de la tanda ({@code clicsPorSegundo} repartidos entre tandas).
+	 */
+	private void tanda(Minecraft mc, CraftingMenu menu, Receta r) {
+		for (int h = 1; h <= 9; h++) {
+			if (!r.usados()[h] && !menu.getSlot(h).getItem().isEmpty()) {
+				click(mc, menu, h, 0);
+				soltarCursor(mc, menu);
+			}
+		}
+		int tope = Math.max(1, clicsPorSegundo * intervalo / 20);
+		clics = 0;
+		while (clics < tope) {
+			for (Grupo g : r.grupos()) {
+				if (!rellenar(mc, menu, g)) {
+					aviso(mc, "esperando " + g.nombre().getString() + " (reserva " + reserva + ")");
+					return;
+				}
+			}
+			if (menu.getSlot(RESULTADO).getItem().isEmpty()) menu.getSlot(RESULTADO).set(r.resultado().copy());
+			sacar(mc, menu, 0); // de uno en uno: así lo que prevé el cliente coincide con el servidor
+		}
+	}
+
+	/** Saca el resultado: al inventario (Mayús+clic) si se guarda y cabe; si no, se tira (Q, o Ctrl+Q con botón 1). */
+	private void sacar(Minecraft mc, CraftingMenu menu, int boton) {
+		if (seQueda() && cabe(menu, menu.getSlot(RESULTADO).getItem())) input(mc, menu, RESULTADO, 0, ContainerInput.QUICK_MOVE);
+		else input(mc, menu, RESULTADO, boton, ContainerInput.THROW);
 	}
 
 	/**
@@ -294,7 +335,7 @@ public class AutoCraft implements ClientModInitializer {
 				soltarCursor(mc, menu);
 			}
 		}
-		if (porStacks) repartirStacks(mc, menu, g, disponibles(menu, g) - reserva);
+		if (porStacks || rapido) repartirStacks(mc, menu, g, disponibles(menu, g) - reserva);
 
 		int faltan = 0;
 		for (int h : g.huecos()) if (menu.getSlot(h).getItem().isEmpty()) faltan++;
@@ -319,9 +360,16 @@ public class AutoCraft implements ClientModInitializer {
 	 * repartir así (stacks más pequeños que los huecos) lo completa luego el modo de 1 en 1.
 	 */
 	private static void repartirStacks(Minecraft mc, CraftingMenu menu, Grupo g, int libres) {
+		// Solo cuando algún hueco baja de 1/4 de stack: rellenar de 1 en 1 cada vez costaría muchos clics.
+		boolean bajo = false;
+		for (int h : g.huecos()) {
+			ItemStack x = menu.getSlot(h).getItem();
+			if (x.isEmpty() || x.getCount() * 4 < x.getMaxStackSize()) bajo = true;
+		}
+		if (!bajo) return;
 		for (int i = 10; i < menu.slots.size(); i++) {
 			ItemStack s = menu.getSlot(i).getItem();
-			if (!vale(s, g)) continue;
+			if (!vale(s, g) || s.getMaxStackSize() == 1) continue; // lo que no se apila (arcos) va de 1 en 1
 			List<Integer> conSitio = new ArrayList<>();
 			for (int h : g.huecos()) {
 				ItemStack x = menu.getSlot(h).getItem();
@@ -405,6 +453,7 @@ public class AutoCraft implements ClientModInitializer {
 	}
 
 	static void input(Minecraft mc, AbstractContainerMenu menu, int slot, int boton, ContainerInput tipo) {
+		clics++;
 		mc.gameMode.handleContainerInput(menu.containerId, slot, boton, tipo, mc.player);
 	}
 
@@ -506,7 +555,7 @@ public class AutoCraft implements ClientModInitializer {
 				grupos.add(new Grupo(clave(p.get(0).getItem()), p.get(0).getHoverName(), entrada.getValue(), items, cupo));
 				for (int h : entrada.getValue()) usados[h] = true;
 			}
-			return new Receta(objetivo, res.getHoverName(), grupos, usados);
+			return new Receta(objetivo, res.getHoverName(), res.copy(), grupos, usados);
 		}
 		return null;
 	}
@@ -539,6 +588,8 @@ public class AutoCraft implements ClientModInitializer {
 			tirar = Boolean.parseBoolean(p.getProperty("tirar", "true"));
 			limpiar = Boolean.parseBoolean(p.getProperty("limpiar", "true"));
 			porStacks = Boolean.parseBoolean(p.getProperty("porStacks", "false"));
+			rapido = Boolean.parseBoolean(p.getProperty("rapido", "false"));
+			clicsPorSegundo = Math.clamp(Integer.parseInt(p.getProperty("clicsPorSegundo", "300")), 20, 2000);
 			vender = Boolean.parseBoolean(p.getProperty("vender", "false"));
 			comando = p.getProperty("comando", comando);
 			objetoVenta = p.getProperty("objetoVenta", "");
@@ -563,6 +614,8 @@ public class AutoCraft implements ClientModInitializer {
 		p.setProperty("tirar", String.valueOf(tirar));
 		p.setProperty("limpiar", String.valueOf(limpiar));
 		p.setProperty("porStacks", String.valueOf(porStacks));
+		p.setProperty("rapido", String.valueOf(rapido));
+		p.setProperty("clicsPorSegundo", String.valueOf(clicsPorSegundo));
 		p.setProperty("vender", String.valueOf(vender));
 		p.setProperty("comando", comando);
 		p.setProperty("objetoVenta", objetoVenta);
