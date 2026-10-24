@@ -24,4 +24,5 @@ jobs:
         if: failure()
         run: |
           J=$(find ~/.gradle -name 'minecraft-merged.jar' | head -1)
-          javap -cp "$J" -p net.minecraft.world.inventory.Slot | grep -E "void set|setByPlayer" || true
+          javap -cp "$J" -p net.minecraft.client.multiplayer.PlayerInfo | grep -i -E "latency|ping" || true
+          javap -cp "$J" -p net.minecraft.client.multiplayer.ClientPacketListener | grep -i "getPlayerInfo" || true

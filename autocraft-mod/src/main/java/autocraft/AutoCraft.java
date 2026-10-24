@@ -16,6 +16,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.recipebook.RecipeCollection;
+import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ServerboundContainerClosePacket;
@@ -165,10 +166,13 @@ public class AutoCraft implements ClientModInitializer {
 		atascado = 0;
 
 		if (rapido) {
-			if (++espera < intervalo) return;
+			// Entre tandas se espera lo justo para que el servidor confirme la anterior (tu ping); si no, el juego
+			// vería el inventario de antes y repetiría clics. Los clics se reparten para mantener los clics/s.
+			int hueco = Math.max(intervalo, ticksDePing(mc));
+			if (++espera < hueco) return;
 			espera = 0;
 			if (limpiar) limpiar(mc, menu, r);
-			tanda(mc, menu, r);
+			tanda(mc, menu, r, hueco);
 			return;
 		}
 
@@ -200,7 +204,7 @@ public class AutoCraft implements ClientModInitializer {
 	 * se adelanta el resultado en el hueco para poder seguir. Para cuando falta material o se gasta el
 	 * tope de clics de la tanda ({@code clicsPorSegundo} repartidos entre tandas).
 	 */
-	private void tanda(Minecraft mc, CraftingMenu menu, Receta r) {
+	private void tanda(Minecraft mc, CraftingMenu menu, Receta r, int hueco) {
 		for (int h = 1; h <= 9; h++) {
 			if (!r.usados()[h] && !menu.getSlot(h).getItem().isEmpty()) {
 				click(mc, menu, h, 0);
@@ -210,7 +214,7 @@ public class AutoCraft implements ClientModInitializer {
 		// Si todo se apila, la rejilla va llena de stacks y cada clic saca todo lo que dé (Ctrl+Q / Mayús+clic).
 		// Si algo no se apila (el arco del dispensador), en su hueco cabe 1 y cada clic solo puede sacar 1.
 		boolean porStacksRapido = r.grupos().stream().allMatch(g -> g.maxStack() > 1);
-		int tope = Math.max(1, clicsPorSegundo * intervalo / 20);
+		int tope = Math.max(1, clicsPorSegundo * hueco / 20);
 		clics = 0;
 		while (clics < tope) {
 			for (Grupo g : r.grupos()) {
@@ -231,6 +235,13 @@ public class AutoCraft implements ClientModInitializer {
 			sacar(mc, menu, 1);
 			for (int h = 1; h <= 9; h++) if (r.usados()[h]) menu.getSlot(h).getItem().shrink(m - 1);
 		}
+	}
+
+	/** Ida y vuelta al servidor en ticks, con margen (el ping lo da la lista de jugadores; si no hay, 100 ms). */
+	private static int ticksDePing(Minecraft mc) {
+		PlayerInfo info = mc.getConnection().getPlayerInfo(mc.player.getUUID());
+		int ms = info != null ? info.getLatency() : 100;
+		return ms / 50 + 2;
 	}
 
 	/** Saca el resultado: al inventario (Mayús+clic) si se guarda y cabe; si no, se tira (Q, o Ctrl+Q con botón 1). */
@@ -601,7 +612,7 @@ public class AutoCraft implements ClientModInitializer {
 			limpiar = Boolean.parseBoolean(p.getProperty("limpiar", "true"));
 			porStacks = Boolean.parseBoolean(p.getProperty("porStacks", "false"));
 			rapido = Boolean.parseBoolean(p.getProperty("rapido", "false"));
-			clicsPorSegundo = Math.clamp(Integer.parseInt(p.getProperty("clicsPorSegundo", "300")), 20, 2000);
+			clicsPorSegundo = Math.clamp(Integer.parseInt(p.getProperty("clicsPorSegundo", "300")), 10, 2000);
 			vender = Boolean.parseBoolean(p.getProperty("vender", "false"));
 			comando = p.getProperty("comando", comando);
 			objetoVenta = p.getProperty("objetoVenta", "");

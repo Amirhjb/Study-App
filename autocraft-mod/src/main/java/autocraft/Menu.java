@@ -60,7 +60,7 @@ class Menu extends Screen {
 		addRenderableWidget(alternar(izq, y += 24, "Limpiar inventario", () -> mod.limpiar, v -> mod.limpiar = v));
 		addRenderableWidget(alternar(izq, y += 24, "Modo rápido", () -> mod.rapido, v -> mod.rapido = v));
 		fila(izq, y += 24, () -> "Rápido: " + mod.clicsPorSegundo + " clics/s",
-				d -> mod.clicsPorSegundo = Math.clamp(mod.clicsPorSegundo + 50 * d, 50, 2000));
+				d -> mod.clicsPorSegundo = Math.clamp(mod.clicsPorSegundo + 10 * d, 10, 2000));
 
 		// Derecha: qué craftear
 		y = 30;
