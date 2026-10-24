@@ -161,10 +161,10 @@ public class AutoCraft implements ClientModInitializer {
 			return;
 		}
 
-		// Algo en el cursor durante medio segundo (desincronización con el servidor, p. ej. recogiste algo
+		// Algo en el cursor más de lo que tarda el servidor en responder (desincronización, p. ej. recogiste algo
 		// justo en el hueco que el mod acababa de vaciar): se devuelve al inventario y se sigue.
 		if (!menu.getCarried().isEmpty()) {
-			if (++atascado < 10) return;
+			if (++atascado < ticksDePing(mc)) return;
 			soltarCursor(mc, menu);
 		}
 		atascado = 0;
@@ -414,7 +414,14 @@ public class AutoCraft implements ClientModInitializer {
 			input(mc, menu, -999, 0, ContainerInput.QUICK_CRAFT); // empezar a arrastrar, reparto a partes iguales
 			for (int h : conSitio) input(mc, menu, h, 1, ContainerInput.QUICK_CRAFT);
 			input(mc, menu, -999, 2, ContainerInput.QUICK_CRAFT); // soltar
-			if (!menu.getCarried().isEmpty()) click(mc, menu, i, 0); // devolver el resto
+			// Lo que sobra del reparto también va a la rejilla (de 1 en 1), así el hueco de origen queda vacío y no hay
+			// que devolver nada: si justo recoges algo y cae ahí, devolver lo intercambiaría y se atascaría el cursor.
+			for (int h : conSitio) {
+				ItemStack x = menu.getSlot(h).getItem();
+				if (menu.getCarried().isEmpty()) break;
+				if (ItemStack.isSameItemSameComponents(x, menu.getCarried()) && x.getCount() < x.getMaxStackSize()) click(mc, menu, h, 1);
+			}
+			if (!menu.getCarried().isEmpty()) click(mc, menu, i, 0); // si aún sobra (rejilla llena), se devuelve
 			libres -= poner;
 			siguiente = enOrden(i, 1);
 		}
