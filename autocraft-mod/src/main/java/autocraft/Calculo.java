@@ -5,6 +5,8 @@ import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.CraftingMenu;
+import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.ItemLore;
@@ -23,7 +25,7 @@ import java.util.regex.Pattern;
  */
 class Calculo {
 	// Lo que pones tú
-	double precioHueso = 150, polvoPorHueso = 3, minutosPorMillon = 4, precioRealElitra = 0, horasDia = 8;
+	double precioHueso = 150, polvoPorHueso = 3, segundosPorMillon = 240, precioRealElitra = 0, horasDia = 8;
 	int modoPrecio = 0; // el precio leído del polvo es: 0 por unidad, 1 por stack de 64, 2 por el montón del hueco
 	static final String[] MODOS = {"por unidad", "por stack de 64", "por el montón"};
 
@@ -36,50 +38,129 @@ class Calculo {
 	int elitrasVistas = 0;
 	String elitraTexto = "";
 	long elitraCuando = 0;
+	double huesoMin = -1;
+	int huesosVistos = 0;
+	String huesoTexto = "";
+	long huesoCuando = 0;
 
 	private int ticks = 0;
 
 	/** Cada medio segundo con un menú abierto, busca los precios en los objetos que se ven. */
 	void tick(Minecraft mc) {
+		automatico(mc);
 		if (++ticks < 10 || mc.player == null || !(mc.screen instanceof AbstractContainerScreen<?> pantalla)) return;
 		ticks = 0;
-		boolean esOrder = pantalla.getTitle().getString().toLowerCase(Locale.ROOT).contains("order");
-		double max = -1, min = -1;
-		int vistas = 0;
-		String textoMax = "";
+		escanear(mc, pantalla.getTitle().getString().toLowerCase(Locale.ROOT).contains("order"));
+	}
+
+	/**
+	 * Mira los objetos del menú abierto: el polvo de hueso de tu inventario y, si es un menú de /order, las élitras
+	 * sin encantar y los huesos (de cada uno se guarda el más caro, que es la base, y el más barato). true si ha
+	 * leído algún precio de /order.
+	 */
+	private boolean escanear(Minecraft mc, boolean esOrder) {
+		double[] elitra = {-1, -1, 0}, hueso = {-1, -1, 0}; // máx, mín, vistos
+		String[] textos = {"", ""};
 		for (Slot sl : mc.player.containerMenu.slots) {
 			ItemStack s = sl.getItem();
 			if (s.isEmpty()) continue;
 			String clave = AutoCraft.clave(s.getItem());
-			if (clave.equals("minecraft:bone_meal") && sl.container instanceof Inventory) {
-				String linea = lineaDePrecio(s);
-				double v = linea == null ? -1 : numero(linea);
-				if (v > 0) {
-					polvoLeido = v;
-					polvoCantidad = s.getCount();
-					polvoTexto = linea;
-					polvoCuando = System.currentTimeMillis();
-				}
-			} else if (esOrder && clave.equals("minecraft:elytra") && !s.isEnchanted() && !(sl.container instanceof Inventory)) {
-				String linea = lineaDePrecio(s);
-				double v = linea == null ? -1 : numero(linea);
-				if (v <= 0) continue;
-				vistas++;
-				if (v > max) {
-					max = v;
-					textoMax = linea;
-				}
-				if (min < 0 || v < min) min = v;
+			boolean tuyo = sl.container instanceof Inventory;
+			String linea = (tuyo && clave.equals("minecraft:bone_meal")) || (!tuyo && esOrder) ? lineaDePrecio(s) : null;
+			double v = linea == null ? -1 : numero(linea);
+			if (v <= 0) continue;
+			if (tuyo && clave.equals("minecraft:bone_meal")) {
+				polvoLeido = v;
+				polvoCantidad = s.getCount();
+				polvoTexto = linea;
+				polvoCuando = System.currentTimeMillis();
+			} else if (!tuyo && clave.equals("minecraft:elytra") && !s.isEnchanted()) {
+				anotar(elitra, textos, 0, v, linea);
+			} else if (!tuyo && clave.equals("minecraft:bone")) {
+				anotar(hueso, textos, 1, v, linea);
 			}
 		}
-		if (vistas > 0) {
-			elitraMax = max;
-			elitraMin = min;
-			elitrasVistas = vistas;
-			elitraTexto = textoMax;
-			elitraCuando = System.currentTimeMillis();
+		long ahora = System.currentTimeMillis();
+		if (elitra[2] > 0) {
+			elitraMax = elitra[0];
+			elitraMin = elitra[1];
+			elitrasVistas = (int) elitra[2];
+			elitraTexto = textos[0];
+			elitraCuando = ahora;
+		}
+		if (hueso[2] > 0) {
+			precioHueso = hueso[0]; // el más caro: el que tienes que igualar para que te vendan a ti
+			huesoMin = hueso[1];
+			huesosVistos = (int) hueso[2];
+			huesoTexto = textos[1];
+			huesoCuando = ahora;
+		}
+		return elitra[2] > 0 || hueso[2] > 0;
+	}
+
+	private static void anotar(double[] m, String[] textos, int i, double v, String linea) {
+		if (v > m[0]) {
+			m[0] = v;
+			textos[i] = linea;
+		}
+		if (m[1] < 0 || v < m[1]) m[1] = v;
+		m[2]++;
+	}
+
+	// --- Botón "Actualizar precios": /order elytra y /order bone, uno detrás de otro ---
+
+	private enum Fase { NADA, ESPERAR, LEER }
+
+	private Fase fase = Fase.NADA;
+	private int faseTicks = 0;
+	private final List<String> cola = new ArrayList<>();
+	private Runnable alTerminar;
+
+	boolean actualizando() {
+		return fase != Fase.NADA;
+	}
+
+	void actualizarPrecios(Runnable alTerminar) {
+		cola.clear();
+		cola.add("order elytra");
+		cola.add("order bone");
+		this.alTerminar = alTerminar;
+		fase = Fase.ESPERAR;
+		faseTicks = 20;
+	}
+
+	private void automatico(Minecraft mc) {
+		if (fase == Fase.NADA || mc.player == null || mc.getConnection() == null) return;
+		faseTicks++;
+		if (fase == Fase.ESPERAR) {
+			if (faseTicks < 25) return; // más de 1 comando por segundo y el servidor te echa por spam
+			if (cola.isEmpty()) {
+				fase = Fase.NADA;
+				AutoCraft.aviso(mc, "precios actualizados");
+				if (alTerminar != null) alTerminar.run();
+				return;
+			}
+			String comando = cola.removeFirst();
+			mc.getConnection().sendCommand(comando);
+			AutoCraft.aviso(mc, "precios: /" + comando);
+			fase = Fase.LEER;
+			faseTicks = 0;
+			return;
+		}
+		// LEER: espera al menú de /order, lee los precios (o se rinde a los 3 s) y lo cierra
+		boolean abierto = mc.screen instanceof AbstractContainerScreen<?>
+				&& !(mc.player.containerMenu instanceof InventoryMenu || mc.player.containerMenu instanceof CraftingMenu);
+		if (abierto && (escanear(mc, true) || faseTicks > 60)) {
+			mc.player.closeContainer();
+			fase = Fase.ESPERAR;
+			faseTicks = 0;
+		} else if (!abierto && faseTicks > 100) {
+			AutoCraft.aviso(mc, "precios: el servidor no ha abierto ningún menú");
+			fase = Fase.ESPERAR;
+			faseTicks = 0;
 		}
 	}
+
 
 	// --- Leer precios del texto de los objetos ---
 
@@ -164,6 +245,10 @@ class Calculo {
 			r.add("Élitra /order: sin leer");
 			r.add("  abre /order con élitras sin encantar");
 		}
+		if (huesoCuando > 0) {
+			r.add("Hueso /order: " + dinero(precioHueso));
+			r.add("  mín " + dinero(huesoMin) + " · " + huesosVistos + " vistos · " + hace(huesoCuando));
+		}
 		if (unidad <= 0 || precioHueso <= 0) return r;
 
 		double ingresoHueso = polvoPorHueso * unidad;
@@ -173,8 +258,8 @@ class Calculo {
 			r.add("¡Con este precio pierdes dinero!");
 			return r;
 		}
-		if (minutosPorMillon <= 0) return r;
-		double bruto = 1e6 * 60 / minutosPorMillon;
+		if (segundosPorMillon <= 0) return r;
+		double bruto = 1e6 * 3600 / segundosPorMillon;
 		double neto = bruto * (1 - precioHueso / ingresoHueso);
 		r.add("Bruto/h: " + dinero(bruto));
 		r.add("Neto/h: " + dinero(neto) + " · día " + dinero(neto * horasDia));
@@ -217,7 +302,9 @@ class Calculo {
 	void cargar(Properties p) {
 		precioHueso = leer(p.getProperty("calc.precioHueso", "150"), 150);
 		polvoPorHueso = leer(p.getProperty("calc.polvoPorHueso", "3"), 3);
-		minutosPorMillon = leer(p.getProperty("calc.minutosPorMillon", "4"), 4);
+		// Antes se guardaba en minutos: si solo está ese valor, se pasa a segundos.
+		segundosPorMillon = p.getProperty("calc.segundosPorMillon") != null ? leer(p.getProperty("calc.segundosPorMillon"), 240)
+				: leer(p.getProperty("calc.minutosPorMillon", "4"), 4) * 60;
 		precioRealElitra = leer(p.getProperty("calc.precioRealElitra", "0"), 0);
 		horasDia = leer(p.getProperty("calc.horasDia", "8"), 8);
 		modoPrecio = Math.clamp((int) leer(p.getProperty("calc.modoPrecio", "0"), 0), 0, 2);
@@ -230,12 +317,16 @@ class Calculo {
 		elitrasVistas = (int) leer(p.getProperty("calc.elitrasVistas", "0"), 0);
 		elitraTexto = p.getProperty("calc.elitraTexto", "");
 		elitraCuando = (long) leer(p.getProperty("calc.elitraCuando", "0"), 0);
+		huesoMin = leer(p.getProperty("calc.huesoMin", "-1"), -1);
+		huesosVistos = (int) leer(p.getProperty("calc.huesosVistos", "0"), 0);
+		huesoTexto = p.getProperty("calc.huesoTexto", "");
+		huesoCuando = (long) leer(p.getProperty("calc.huesoCuando", "0"), 0);
 	}
 
 	void guardar(Properties p) {
 		p.setProperty("calc.precioHueso", String.valueOf(precioHueso));
 		p.setProperty("calc.polvoPorHueso", String.valueOf(polvoPorHueso));
-		p.setProperty("calc.minutosPorMillon", String.valueOf(minutosPorMillon));
+		p.setProperty("calc.segundosPorMillon", String.valueOf(segundosPorMillon));
 		p.setProperty("calc.precioRealElitra", String.valueOf(precioRealElitra));
 		p.setProperty("calc.horasDia", String.valueOf(horasDia));
 		p.setProperty("calc.modoPrecio", String.valueOf(modoPrecio));
@@ -248,5 +339,9 @@ class Calculo {
 		p.setProperty("calc.elitrasVistas", String.valueOf(elitrasVistas));
 		p.setProperty("calc.elitraTexto", elitraTexto);
 		p.setProperty("calc.elitraCuando", String.valueOf(elitraCuando));
+		p.setProperty("calc.huesoMin", String.valueOf(huesoMin));
+		p.setProperty("calc.huesosVistos", String.valueOf(huesosVistos));
+		p.setProperty("calc.huesoTexto", huesoTexto);
+		p.setProperty("calc.huesoCuando", String.valueOf(huesoCuando));
 	}
 }

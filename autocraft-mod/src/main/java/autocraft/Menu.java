@@ -21,12 +21,17 @@ class Menu extends Screen {
 	private final AutoCraft mod;
 	private final List<AutoCraft.Opcion> opciones; // lo que se puede craftear
 	private final List<AutoCraft.Opcion> todos = AutoCraft.todosLosObjetos(); // lo que se puede vender
-	private int pestaña = 0; // 0 crafteo, 1 subasta (/ah sell), 2 sell (menú de /sell), 3 cálculo
+	private int pestaña; // 0 crafteo, 1 subasta (/ah sell), 2 sell (menú de /sell), 3 cálculo
 	private final List<StringWidget> lineas = new ArrayList<>(); // resultados de la pestaña Cálculo
 
 	Menu(AutoCraft mod, List<AutoCraft.Opcion> opciones) {
+		this(mod, opciones, 0);
+	}
+
+	Menu(AutoCraft mod, List<AutoCraft.Opcion> opciones, int pestaña) {
 		super(Component.literal("AutoCraft"));
 		this.mod = mod;
+		this.pestaña = pestaña;
 		this.opciones = opciones;
 		mod.elegir(mod.objetivo); // vuelve a buscar la receta por si la acabas de desbloquear
 	}
@@ -144,7 +149,7 @@ class Menu extends Screen {
 		Calculo c = mod.calc;
 		campo(izq, y, "Precio de un hueso ($)", c.precioHueso, v -> c.precioHueso = v);
 		campo(izq, y += 34, "Polvo por hueso", c.polvoPorHueso, v -> c.polvoPorHueso = v);
-		campo(izq, y += 34, "Minutos para sacar 1M bruto", c.minutosPorMillon, v -> c.minutosPorMillon = v);
+		campo(izq, y += 34, "Segundos para sacar 1M bruto", c.segundosPorMillon, v -> c.segundosPorMillon = v);
 		campo(izq, y += 34, "Precio real de una élitra (€)", c.precioRealElitra, v -> c.precioRealElitra = v);
 		campo(izq, y += 34, "Horas al día", c.horasDia, v -> c.horasDia = v);
 		Supplier<Component> modo = () -> Component.literal("Precio del polvo leído: " + Calculo.MODOS[c.modoPrecio]);
@@ -154,9 +159,15 @@ class Menu extends Screen {
 			refrescar();
 		}).bounds(izq, y += 36, ANCHO, 20).build());
 
+		// Derecha: el botón que mira los precios solo, y debajo los resultados
+		Button actualizar = addRenderableWidget(Button.builder(Component.literal(c.actualizando() ? "Actualizando…" : "Actualizar precios (/order)"), b -> {
+			c.actualizarPrecios(() -> minecraft.setScreen(new Menu(mod, AutoCraft.opciones(minecraft), 3)));
+			onClose(); // cierra el menú para que el servidor pueda abrir el de /order
+		}).bounds(der, 30, ANCHO, 20).build());
+		actualizar.active = !c.actualizando();
 		lineas.clear();
-		for (int i = 0; i < 13; i++) {
-			lineas.add(addRenderableWidget(new StringWidget(der, 30 + 6 + 14 * i, ANCHO, 12, Component.empty(), font)));
+		for (int i = 0; i < 15; i++) {
+			lineas.add(addRenderableWidget(new StringWidget(der, 56 + 13 * i, ANCHO, 12, Component.empty(), font)));
 		}
 		refrescar();
 	}

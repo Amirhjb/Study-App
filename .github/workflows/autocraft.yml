@@ -24,5 +24,4 @@ jobs:
         if: failure()
         run: |
           J=$(find ~/.gradle -name 'minecraft-merged.jar' | head -1)
-          javap -cp "$J" -p net.minecraft.world.item.component.ItemLore | head -20 || true
-          javap -cp "$J" -p net.minecraft.client.gui.screens.Screen | grep -i title || true
+          javap -cp "$J" -p net.minecraft.client.player.LocalPlayer | grep -i -E "close" || true
