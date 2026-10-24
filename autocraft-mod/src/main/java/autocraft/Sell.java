@@ -34,6 +34,8 @@ class Sell {
 	private int ticks = 0;
 	private int menuVenta = -1; // containerId del menú que abrió /sell
 	private final Set<Integer> probados = new HashSet<>(); // huecos ya metidos en esta vuelta
+	private int movidos = 0; // objetos metidos en esta vuelta
+	private boolean ultimaVacia = false; // la vuelta anterior no pudo meter nada
 
 	void tick(Minecraft mc) {
 		if (mc.player == null || mc.gameMode == null || mc.getConnection() == null) return;
@@ -45,14 +47,17 @@ class Sell {
 
 		switch (paso) {
 			case ESPERA -> {
-				if (ticks < segundos * 20) return;
 				if (!hayQueVender(mc.player.getInventory())) {
 					AutoCraft.aviso(mc, "sell: nada que vender");
 					return;
 				}
 				if (abierto) {
+					// Con el menú aún abierto no hay que mandar /sell: se vuelve a meter en cuanto hay algo (2 ticks de
+					// margen). Solo si la vuelta anterior no pudo meter nada se espera "Cada N s", para no pulsar en bucle.
+					if (ticks < (ultimaVacia ? segundos * 20 : 2)) return;
 					empezarAMeter();
 				} else if (delJugador) {
+					if (ticks < segundos * 20) return; // el comando sí espera: más de 1 por segundo y te echan por spam
 					mc.getConnection().sendCommand(comando);
 					paso = Paso.ABRIENDO;
 					ticks = 0;
@@ -93,11 +98,15 @@ class Sell {
 					if (!seVende(sl.getContainerSlot(), sl.getItem())) continue;
 					probados.add(i); // una vez por vuelta: si el menú no lo acepta, no se reintenta en bucle
 					AutoCraft.input(mc, menu, i, 0, ContainerInput.QUICK_MOVE);
+					movidos++;
 					ticks = 0;
 					if (ticksEntreClics > 0) return; // un clic cada ticksEntreClics
 				}
-				AutoCraft.click(mc, menu, boton, 0);
-				AutoCraft.aviso(mc, "sell: vendido");
+				ultimaVacia = movidos == 0;
+				if (!ultimaVacia) {
+					AutoCraft.click(mc, menu, boton, 0);
+					AutoCraft.aviso(mc, "sell: vendido");
+				}
 				paso = Paso.ESPERA;
 				ticks = 0;
 			}
@@ -118,6 +127,7 @@ class Sell {
 	private void empezarAMeter() {
 		paso = Paso.METIENDO;
 		probados.clear();
+		movidos = 0;
 		ticks = 0;
 	}
 
