@@ -77,6 +77,10 @@ public class AutoCraft implements ClientModInitializer {
 	boolean rapido = false; // encadenar muchos crafteos por tanda sin esperar al servidor
 	int clicsPorSegundo = 300; // tope de clics en modo rápido (muchos servidores echan hacia 500 paquetes/s)
 	private static int clics = 0; // clics enviados en la tanda actual
+	// Por dónde va cogiendo material del inventario (huecos 10-45 del menú, fila a fila). Sigue donde lo dejó en vez de
+	// volver siempre arriba a la izquierda: lo que recoges del suelo cae en el primer hueco libre, justo el que se
+	// acaba de vaciar, y ahí el juego y el servidor aún no coinciden. Así se coge de los huecos que llevan más quietos.
+	private static int siguiente = 10;
 	private final Map<String, Integer> cupos = new HashMap<>(); // "objetivo|ingrediente" -> huecos
 
 	boolean vender = false;
@@ -365,7 +369,9 @@ public class AutoCraft implements ClientModInitializer {
 		if (faltan == 0) return true;
 		if (disponibles(menu, g) - reserva < faltan) return false;
 
-		for (int i = 10; i < menu.slots.size() && hayHueco(menu, g); i++) {
+		int inicio = siguiente;
+		for (int n = 0; n < 36 && hayHueco(menu, g); n++) {
+			int i = enOrden(inicio, n);
 			if (!vale(menu.getSlot(i).getItem(), g)) continue;
 			click(mc, menu, i, 0); // coger el stack
 			for (int h : g.huecos()) {
@@ -373,6 +379,7 @@ public class AutoCraft implements ClientModInitializer {
 				if (menu.getSlot(h).getItem().isEmpty()) click(mc, menu, h, 1); // soltar 1
 			}
 			if (!menu.getCarried().isEmpty()) click(mc, menu, i, 0); // devolver el resto
+			siguiente = enOrden(i, 1);
 		}
 		return !hayHueco(menu, g);
 	}
@@ -390,7 +397,9 @@ public class AutoCraft implements ClientModInitializer {
 			if (x.isEmpty() || x.getCount() * 4 < x.getMaxStackSize()) bajo = true;
 		}
 		if (!bajo) return;
-		for (int i = 10; i < menu.slots.size(); i++) {
+		int inicio = siguiente;
+		for (int n = 0; n < 36; n++) {
+			int i = enOrden(inicio, n);
 			ItemStack s = menu.getSlot(i).getItem();
 			if (!vale(s, g) || s.getMaxStackSize() == 1) continue; // lo que no se apila (arcos) va de 1 en 1
 			List<Integer> conSitio = new ArrayList<>();
@@ -407,7 +416,13 @@ public class AutoCraft implements ClientModInitializer {
 			input(mc, menu, -999, 2, ContainerInput.QUICK_CRAFT); // soltar
 			if (!menu.getCarried().isEmpty()) click(mc, menu, i, 0); // devolver el resto
 			libres -= poner;
+			siguiente = enOrden(i, 1);
 		}
+	}
+
+	/** El hueco n-ésimo del inventario (10-45) empezando en {@code desde} y dando la vuelta al final. */
+	private static int enOrden(int desde, int n) {
+		return 10 + (desde - 10 + n) % 36;
 	}
 
 	private static int disponibles(CraftingMenu menu, Grupo g) {
