@@ -218,6 +218,9 @@ public class AutoCraft implements ClientModInitializer {
 		// Si todo se apila, la rejilla va llena de stacks y cada clic saca todo lo que dé (Ctrl+Q / Mayús+clic).
 		// Si algo no se apila (el arco del dispensador), en su hueco cabe 1 y cada clic solo puede sacar 1.
 		boolean porStacksRapido = r.grupos().stream().allMatch(g -> g.maxStack() > 1);
+		// Resultado "fantasma": el último aviso del servidor de la tanda anterior deja el resultado en el hueco aunque
+		// la rejilla ya no esté completa. Si falta algún ingrediente no es real: se quita (solo en tu pantalla).
+		if (!menu.getSlot(RESULTADO).getItem().isEmpty() && !completa(menu, r)) menu.getSlot(RESULTADO).set(ItemStack.EMPTY);
 		int tope = Math.max(1, clicsPorSegundo * hueco / 20);
 		clics = 0;
 		while (clics < tope) {
@@ -227,7 +230,13 @@ public class AutoCraft implements ClientModInitializer {
 					return;
 				}
 			}
-			if (menu.getSlot(RESULTADO).getItem().isEmpty()) menu.getSlot(RESULTADO).set(r.resultado().copy());
+			if (menu.getSlot(RESULTADO).getItem().isEmpty()) {
+				menu.getSlot(RESULTADO).set(r.resultado().copy());
+				// El servidor acaba de calcular ese resultado y lo avisa con un paquete que sube en 1 su número de estado
+				// del menú. Se sube aquí también: si los siguientes clics llevan un número viejo, el servidor contesta CADA
+				// clic con el inventario entero, y esa avalancha es lo que frenaba y dejaba crafteos "fantasma".
+				menu.incrementStateId();
+			}
 			if (!porStacksRapido) {
 				sacar(mc, menu, 0);
 				continue;
@@ -237,8 +246,17 @@ public class AutoCraft implements ClientModInitializer {
 			int m = Integer.MAX_VALUE;
 			for (int h = 1; h <= 9; h++) if (r.usados()[h]) m = Math.min(m, menu.getSlot(h).getItem().getCount());
 			sacar(mc, menu, 1);
-			for (int h = 1; h <= 9; h++) if (r.usados()[h]) menu.getSlot(h).getItem().shrink(m - 1);
+			for (int h = 1; h <= 9; h++) {
+				if (!r.usados()[h]) continue;
+				menu.getSlot(h).getItem().shrink(m - 1);
+				if (m > 1) menu.incrementStateId(); // el servidor corrige ese hueco con un paquete (+1)
+			}
 		}
+	}
+
+	private static boolean completa(CraftingMenu menu, Receta r) {
+		for (int h = 1; h <= 9; h++) if (r.usados()[h] && menu.getSlot(h).getItem().isEmpty()) return false;
+		return true;
 	}
 
 	/** Ida y vuelta al servidor en ticks, con margen (el ping lo da la lista de jugadores; si no hay, 100 ms). */
