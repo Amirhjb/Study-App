@@ -113,6 +113,9 @@ class Menu extends Screen {
 		fila(izq, y += 24, () -> "Cada " + sell.segundos + " s", d -> sell.segundos = Math.clamp(sell.segundos + d, 1, 3600));
 		fila(izq, y += 24, () -> "Entre clics: " + (sell.ticksEntreClics == 0 ? "de golpe" : sell.ticksEntreClics + " ticks"),
 				d -> sell.ticksEntreClics = Math.clamp(sell.ticksEntreClics + d, 0, 20));
+		addRenderableWidget(alternar(izq, y += 24, "Solo pulsar el botón", () -> sell.soloBoton, v -> sell.soloBoton = v));
+		fila(izq, y += 24, () -> "Botón: cada " + sell.ticksBoton + " ticks (" + 20 / sell.ticksBoton + "/s)",
+				d -> sell.ticksBoton = Math.clamp(sell.ticksBoton + d, 1, 20));
 
 		y = 30;
 		addRenderableWidget(new StringWidget(der, y + 6, ANCHO, 12, Component.literal("Comando:"), font));
