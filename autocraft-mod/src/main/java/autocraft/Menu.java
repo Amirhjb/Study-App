@@ -109,6 +109,7 @@ class Menu extends Screen {
 			b.setMessage(modo.get());
 		}).bounds(izq, y += 24, ANCHO, 20).build());
 		addRenderableWidget(alternar(izq, y += 24, "Incluir barra rápida", () -> sell.barra, v -> sell.barra = v));
+		addRenderableWidget(alternar(izq, y += 24, "Tirar lo que no se vende", () -> sell.tirarResto, v -> sell.tirarResto = v));
 		fila(izq, y += 24, () -> "Cada " + sell.segundos + " s", d -> sell.segundos = Math.clamp(sell.segundos + d, 1, 3600));
 		fila(izq, y += 24, () -> "Entre clics: " + (sell.ticksEntreClics == 0 ? "de golpe" : sell.ticksEntreClics + " ticks"),
 				d -> sell.ticksEntreClics = Math.clamp(sell.ticksEntreClics + d, 0, 20));

@@ -23,6 +23,7 @@ class Sell {
 	String comando = "sell";
 	boolean todo = false; // true: todo el inventario; false: solo los elegidos
 	boolean barra = false; // si también se vende lo que hay en la barra rápida
+	boolean tirarResto = false; // con el menú de venta abierto, tirar lo que no esté en la lista
 	final Set<String> elegidos = new LinkedHashSet<>();
 	int segundos = 1; // entre ventas (mínimo 1: más rápido, el servidor te echa por spam de comandos)
 	int ticksEntreClics = 1; // 0 = todos los clics de golpe
@@ -40,6 +41,7 @@ class Sell {
 		boolean delJugador = menu instanceof InventoryMenu || menu instanceof CraftingMenu;
 		boolean abierto = !delJugador && menu.containerId == menuVenta;
 		ticks++;
+		if (abierto && tirarResto && !todo && menu.getCarried().isEmpty()) tirarLoDemas(mc, menu);
 
 		switch (paso) {
 			case ESPERA -> {
@@ -102,6 +104,17 @@ class Sell {
 		}
 	}
 
+	/** Tira (Ctrl+Q) lo de tu inventario que no esté en la lista; la barra rápida solo con "Incluir barra rápida". */
+	private void tirarLoDemas(Minecraft mc, AbstractContainerMenu menu) {
+		for (int i = 0; i < menu.slots.size(); i++) {
+			Slot sl = menu.slots.get(i);
+			if (!(sl.container instanceof Inventory) || sl.getContainerSlot() >= 36 || (sl.getContainerSlot() < 9 && !barra)) continue;
+			if (sl.hasItem() && !elegidos.contains(AutoCraft.clave(sl.getItem().getItem()))) {
+				AutoCraft.input(mc, menu, i, 1, ContainerInput.THROW);
+			}
+		}
+	}
+
 	private void empezarAMeter() {
 		paso = Paso.METIENDO;
 		probados.clear();
@@ -140,6 +153,7 @@ class Sell {
 		comando = p.getProperty("sell.comando", comando);
 		todo = Boolean.parseBoolean(p.getProperty("sell.todo", "false"));
 		barra = Boolean.parseBoolean(p.getProperty("sell.barra", "false"));
+		tirarResto = Boolean.parseBoolean(p.getProperty("sell.tirarResto", "false"));
 		segundos = Math.max(1, Integer.parseInt(p.getProperty("sell.segundos", "1")));
 		ticksEntreClics = Math.clamp(Integer.parseInt(p.getProperty("sell.ticksEntreClics", "1")), 0, 20);
 		elegidos.clear();
@@ -151,6 +165,7 @@ class Sell {
 		p.setProperty("sell.comando", comando);
 		p.setProperty("sell.todo", String.valueOf(todo));
 		p.setProperty("sell.barra", String.valueOf(barra));
+		p.setProperty("sell.tirarResto", String.valueOf(tirarResto));
 		p.setProperty("sell.segundos", String.valueOf(segundos));
 		p.setProperty("sell.ticksEntreClics", String.valueOf(ticksEntreClics));
 		p.setProperty("sell.elegidos", String.join(",", elegidos));
