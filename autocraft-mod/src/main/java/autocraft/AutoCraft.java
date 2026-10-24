@@ -64,6 +64,7 @@ public class AutoCraft implements ClientModInitializer {
 	int reserva = 1; // cuántos de cada ingrediente se dejan siempre en el inventario
 	boolean tirar = true; // tirar el resultado (si no, o si se vende, se guarda; si no cabe, se tira igual)
 	boolean limpiar = true; // tirar del inventario principal lo que no sea ingrediente o pase de su cupo
+	boolean porStacks = false; // llenar la rejilla con stacks y sacar todo de golpe (Mayús+clic / Ctrl+Q)
 	private final Map<String, Integer> cupos = new HashMap<>(); // "objetivo|ingrediente" -> huecos
 
 	boolean vender = false;
@@ -117,7 +118,9 @@ public class AutoCraft implements ClientModInitializer {
 		// (el servidor calcula el resultado, así que tarda un tick en aparecer).
 		ItemStack resultado = menu.getSlot(RESULTADO).getItem();
 		if (++espera >= intervalo && !resultado.isEmpty()) {
-			input(mc, menu, RESULTADO, 0, !seQueda() || !cabe(menu, resultado) ? ContainerInput.THROW : ContainerInput.QUICK_MOVE);
+			// QUICK_MOVE (Mayús+clic) craftea todo lo que dé la rejilla; THROW con botón 1 (Ctrl+Q) también.
+			if (seQueda() && cabe(menu, resultado)) input(mc, menu, RESULTADO, 0, ContainerInput.QUICK_MOVE);
+			else input(mc, menu, RESULTADO, porStacks ? 1 : 0, ContainerInput.THROW);
 			espera = 0;
 		}
 
@@ -238,22 +241,18 @@ public class AutoCraft implements ClientModInitializer {
 	 * false si falta material; nunca baja del mínimo de {@code reserva} en el inventario.
 	 */
 	private boolean rellenar(Minecraft mc, CraftingMenu menu, Grupo g) {
-		int faltan = 0;
 		for (int h : g.huecos()) {
 			if (!menu.getSlot(h).getItem().isEmpty() && !vale(menu.getSlot(h).getItem(), g)) {
 				click(mc, menu, h, 0);
 				soltarCursor(mc, menu);
 			}
-			if (menu.getSlot(h).getItem().isEmpty()) faltan++;
 		}
-		if (faltan == 0) return true;
+		if (porStacks) repartirStacks(mc, menu, g, disponibles(menu, g) - reserva);
 
-		int disponibles = 0;
-		for (int i = 10; i < menu.slots.size(); i++) {
-			ItemStack s = menu.getSlot(i).getItem();
-			if (vale(s, g)) disponibles += s.getCount();
-		}
-		if (disponibles - reserva < faltan) return false;
+		int faltan = 0;
+		for (int h : g.huecos()) if (menu.getSlot(h).getItem().isEmpty()) faltan++;
+		if (faltan == 0) return true;
+		if (disponibles(menu, g) - reserva < faltan) return false;
 
 		for (int i = 10; i < menu.slots.size() && hayHueco(menu, g); i++) {
 			if (!vale(menu.getSlot(i).getItem(), g)) continue;
@@ -265,6 +264,41 @@ public class AutoCraft implements ClientModInitializer {
 			if (!menu.getCarried().isEmpty()) click(mc, menu, i, 0); // devolver el resto
 		}
 		return !hayHueco(menu, g);
+	}
+
+	/**
+	 * Modo stacks: reparte stacks enteros a partes iguales entre los huecos del ingrediente que tengan sitio,
+	 * como al arrastrar con clic izquierdo. Solo usa stacks que no bajen de la reserva; lo que no se pueda
+	 * repartir así (stacks más pequeños que los huecos) lo completa luego el modo de 1 en 1.
+	 */
+	private static void repartirStacks(Minecraft mc, CraftingMenu menu, Grupo g, int libres) {
+		for (int i = 10; i < menu.slots.size(); i++) {
+			ItemStack s = menu.getSlot(i).getItem();
+			if (!vale(s, g)) continue;
+			List<Integer> conSitio = new ArrayList<>();
+			for (int h : g.huecos()) {
+				ItemStack x = menu.getSlot(h).getItem();
+				if (x.isEmpty() || (ItemStack.isSameItemSameComponents(x, s) && x.getCount() < x.getMaxStackSize())) conSitio.add(h);
+			}
+			if (conSitio.isEmpty()) return;
+			int poner = s.getCount() / conSitio.size() * conSitio.size();
+			if (poner == 0 || poner > libres) continue;
+			click(mc, menu, i, 0); // coger el stack
+			input(mc, menu, -999, 0, ContainerInput.QUICK_CRAFT); // empezar a arrastrar, reparto a partes iguales
+			for (int h : conSitio) input(mc, menu, h, 1, ContainerInput.QUICK_CRAFT);
+			input(mc, menu, -999, 2, ContainerInput.QUICK_CRAFT); // soltar
+			if (!menu.getCarried().isEmpty()) click(mc, menu, i, 0); // devolver el resto
+			libres -= poner;
+		}
+	}
+
+	private static int disponibles(CraftingMenu menu, Grupo g) {
+		int n = 0;
+		for (int i = 10; i < menu.slots.size(); i++) {
+			ItemStack s = menu.getSlot(i).getItem();
+			if (vale(s, g)) n += s.getCount();
+		}
+		return n;
 	}
 
 	// Los objetos encantados no se usan nunca, para no gastar tu arco bueno.
@@ -457,6 +491,7 @@ public class AutoCraft implements ClientModInitializer {
 			reserva = Math.max(0, Integer.parseInt(p.getProperty("reserva", "1")));
 			tirar = Boolean.parseBoolean(p.getProperty("tirar", "true"));
 			limpiar = Boolean.parseBoolean(p.getProperty("limpiar", "true"));
+			porStacks = Boolean.parseBoolean(p.getProperty("porStacks", "false"));
 			vender = Boolean.parseBoolean(p.getProperty("vender", "false"));
 			comando = p.getProperty("comando", comando);
 			objetoVenta = p.getProperty("objetoVenta", "");
@@ -479,6 +514,7 @@ public class AutoCraft implements ClientModInitializer {
 		p.setProperty("reserva", String.valueOf(reserva));
 		p.setProperty("tirar", String.valueOf(tirar));
 		p.setProperty("limpiar", String.valueOf(limpiar));
+		p.setProperty("porStacks", String.valueOf(porStacks));
 		p.setProperty("vender", String.valueOf(vender));
 		p.setProperty("comando", comando);
 		p.setProperty("objetoVenta", objetoVenta);

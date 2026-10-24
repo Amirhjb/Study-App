@@ -50,6 +50,7 @@ class Menu extends Screen {
 		fila(izq, y += 24, () -> "Reserva: " + mod.reserva + " de cada",
 				d -> mod.reserva = Math.clamp(mod.reserva + d, 0, 64));
 		addRenderableWidget(alternar(izq, y += 24, "Tirar el resultado", () -> mod.tirar, v -> mod.tirar = v));
+		addRenderableWidget(alternar(izq, y += 24, "Por stacks", () -> mod.porStacks, v -> mod.porStacks = v));
 		addRenderableWidget(alternar(izq, y += 24, "Limpiar inventario", () -> mod.limpiar, v -> mod.limpiar = v));
 
 		if (receta != null) {
