@@ -20,12 +20,9 @@ jobs:
         with:
           name: autocraft-jar
           path: autocraft-mod/build/libs/autocraft-1.0.0.jar
-      - name: Probe container sync
-        if: always()
+      - name: Probe Minecraft API on failure
+        if: failure()
         run: |
           J=$(find ~/.gradle -name 'minecraft-merged.jar' | head -1)
-          javap -cp "$J" -p net.minecraft.world.inventory.AbstractContainerMenu | grep -i stateid || true
-          javap -cp "$J" -c -p net.minecraft.server.network.ServerGamePacketListenerImpl > s.txt
-          echo "== handleContainerClick"; sed -n '/public void handleContainerClick/,/^$/p' s.txt | grep -E "StateId|broadcast|clicked|setRemote" || true
-          javap -cp "$J" -c -p 'net.minecraft.server.level.ServerPlayer$1' > sp.txt 2>/dev/null || true
-          echo "== synchronizer"; grep -E "public void send|incrementStateId|Packet.\"<init>" sp.txt | head -20 || true
+          javap -cp "$J" -p net.minecraft.world.item.component.ItemLore | head -20 || true
+          javap -cp "$J" -p net.minecraft.client.gui.screens.Screen | grep -i title || true

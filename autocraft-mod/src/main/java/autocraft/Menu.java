@@ -21,7 +21,8 @@ class Menu extends Screen {
 	private final AutoCraft mod;
 	private final List<AutoCraft.Opcion> opciones; // lo que se puede craftear
 	private final List<AutoCraft.Opcion> todos = AutoCraft.todosLosObjetos(); // lo que se puede vender
-	private int pestaña = 0; // 0 crafteo, 1 subasta (/ah sell), 2 sell (menú de /sell)
+	private int pestaña = 0; // 0 crafteo, 1 subasta (/ah sell), 2 sell (menú de /sell), 3 cálculo
+	private final List<StringWidget> lineas = new ArrayList<>(); // resultados de la pestaña Cálculo
 
 	Menu(AutoCraft mod, List<AutoCraft.Opcion> opciones) {
 		super(Component.literal("AutoCraft"));
@@ -33,10 +34,10 @@ class Menu extends Screen {
 	@Override
 	protected void init() {
 		int izq = width / 2 - ANCHO - 5, der = width / 2 + 5, y = 30;
-		String[] nombres = {"Crafteo", "Subasta (/ah)", "Sell (/sell)"};
+		String[] nombres = {"Crafteo", "Subasta (/ah)", "Sell (/sell)", "Cálculo"};
 		for (int i = 0; i < nombres.length; i++) {
 			int n = i;
-			Button b = addRenderableWidget(Button.builder(Component.literal(nombres[i]), x -> pestaña(n)).bounds(width / 2 - 151 + 101 * i, 4, 100, 20).build());
+			Button b = addRenderableWidget(Button.builder(Component.literal(nombres[i]), x -> pestaña(n)).bounds(width / 2 - 194 + 97 * i, 4, 95, 20).build());
 			b.active = pestaña != i;
 		}
 		AutoCraft.Receta receta = mod.receta(minecraft);
@@ -46,6 +47,10 @@ class Menu extends Screen {
 		}
 		if (pestaña == 2) {
 			initSell(izq, der, y);
+			return;
+		}
+		if (pestaña == 3) {
+			initCalculo(izq, der, y);
 			return;
 		}
 
@@ -133,6 +138,43 @@ class Menu extends Screen {
 			sell.elegidos.clear();
 			rebuildWidgets();
 		}).bounds(der, y + 22 * (MAX_RESULTADOS + 1) + 4, ANCHO, 20).build());
+	}
+
+	private void initCalculo(int izq, int der, int y) {
+		Calculo c = mod.calc;
+		campo(izq, y, "Precio de un hueso ($)", c.precioHueso, v -> c.precioHueso = v);
+		campo(izq, y += 34, "Polvo por hueso", c.polvoPorHueso, v -> c.polvoPorHueso = v);
+		campo(izq, y += 34, "Minutos para sacar 1M bruto", c.minutosPorMillon, v -> c.minutosPorMillon = v);
+		campo(izq, y += 34, "Precio real de una élitra (€)", c.precioRealElitra, v -> c.precioRealElitra = v);
+		campo(izq, y += 34, "Horas al día", c.horasDia, v -> c.horasDia = v);
+		Supplier<Component> modo = () -> Component.literal("Precio del polvo leído: " + Calculo.MODOS[c.modoPrecio]);
+		addRenderableWidget(Button.builder(modo.get(), b -> {
+			c.modoPrecio = (c.modoPrecio + 1) % Calculo.MODOS.length;
+			b.setMessage(modo.get());
+			refrescar();
+		}).bounds(izq, y += 36, ANCHO, 20).build());
+
+		lineas.clear();
+		for (int i = 0; i < 13; i++) {
+			lineas.add(addRenderableWidget(new StringWidget(der, 30 + 6 + 14 * i, ANCHO, 12, Component.empty(), font)));
+		}
+		refrescar();
+	}
+
+	/** Etiqueta + caja de número; al escribir se recalcula. */
+	private void campo(int x, int y, String etiqueta, double valor, java.util.function.DoubleConsumer poner) {
+		addRenderableWidget(new StringWidget(x, y, ANCHO, 12, Component.literal(etiqueta), font));
+		EditBox caja = addRenderableWidget(new EditBox(font, x, y + 12, ANCHO, 18, Component.literal(etiqueta)));
+		caja.setValue(String.valueOf(valor).replaceAll("\\.0$", ""));
+		caja.setResponder(t -> {
+			poner.accept(Calculo.leer(t, 0));
+			refrescar();
+		});
+	}
+
+	private void refrescar() {
+		List<String> r = mod.calc.resultados();
+		for (int i = 0; i < lineas.size(); i++) lineas.get(i).setMessage(Component.literal(i < r.size() ? r.get(i) : ""));
 	}
 
 	private void pestaña(int n) {

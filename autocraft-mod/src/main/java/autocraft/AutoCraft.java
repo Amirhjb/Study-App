@@ -92,6 +92,7 @@ public class AutoCraft implements ClientModInitializer {
 	private int esperaVenta = 0;
 
 	final Sell sell = new Sell();
+	final Calculo calc = new Calculo();
 
 	private int espera = 0; // ticks desde el último crafteo
 	private int atascado = 0; // ticks con algo en el cursor
@@ -117,6 +118,7 @@ public class AutoCraft implements ClientModInitializer {
 			if (activo) craftear(mc);
 			if (vender) vender(mc);
 			if (sell.activo) sell.tick(mc);
+			calc.tick(mc);
 		});
 
 		// Minecraft no lee esas teclas con un menú abierto (la mesa, el menú del /sell...): ahí se miran aparte.
@@ -660,6 +662,7 @@ public class AutoCraft implements ClientModInitializer {
 			segundosVenta = Math.max(1, Integer.parseInt(p.getProperty("segundosVenta", "1")));
 			huecoVenta = Math.clamp(Integer.parseInt(p.getProperty("huecoVenta", "8")), 0, 8);
 			sell.cargar(p);
+			calc.cargar(p);
 			for (String k : p.stringPropertyNames()) {
 				if (k.startsWith("cupo.")) cupos.put(k.substring(5), Integer.parseInt(p.getProperty(k)));
 			}
@@ -687,6 +690,7 @@ public class AutoCraft implements ClientModInitializer {
 		p.setProperty("huecoVenta", String.valueOf(huecoVenta));
 		cupos.forEach((k, v) -> p.setProperty("cupo." + k, String.valueOf(v)));
 		sell.guardar(p);
+		calc.guardar(p);
 		try (Writer w = Files.newBufferedWriter(CONFIG)) {
 			p.store(w, "AutoCraft - intervalo en ticks (20 = 1 segundo)");
 		} catch (Exception e) {
