@@ -1,1 +1,6 @@
-{ "key.autocraft.menu": "AutoCraft (menú)" }
+{
+	"key.autocraft.menu": "AutoCraft: abrir menú",
+	"key.autocraft.crafteo": "AutoCraft: crafteo on/off",
+	"key.autocraft.subasta": "AutoCraft: subasta (/ah) on/off",
+	"key.autocraft.sell": "AutoCraft: sell (/sell) on/off"
+}

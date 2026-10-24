@@ -4,9 +4,17 @@ import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenKeyboardEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.events.ContainerEventHandler;
+import net.minecraft.client.gui.components.events.GuiEventListener;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.recipebook.RecipeCollection;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -86,17 +94,53 @@ public class AutoCraft implements ClientModInitializer {
 	@Override
 	public void onInitializeClient() {
 		cargar();
-		KeyMapping tecla = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-				"key.autocraft.menu", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_K, KeyMapping.Category.MISC));
+		KeyMapping tecla = registrar("key.autocraft.menu", GLFW.GLFW_KEY_K);
+		// Una tecla para encender/apagar cada función; se cambian (o se quitan) en Opciones > Controles.
+		KeyMapping[] atajos = {
+				registrar("key.autocraft.crafteo", GLFW.GLFW_KEY_O),
+				registrar("key.autocraft.subasta", GLFW.GLFW_KEY_UNKNOWN),
+				registrar("key.autocraft.sell", GLFW.GLFW_KEY_P)};
 
 		ClientTickEvents.END_CLIENT_TICK.register(mc -> {
 			while (tecla.consumeClick()) {
 				if (mc.player != null) mc.setScreen(new Menu(this, opciones(mc)));
 			}
+			for (int i = 0; i < atajos.length; i++) while (atajos[i].consumeClick()) alternar(mc, i);
 			if (activo) craftear(mc);
 			if (vender) vender(mc);
 			if (sell.activo) sell.tick(mc);
 		});
+
+		// Minecraft no lee esas teclas con un menú abierto (la mesa, el menú del /sell...): ahí se miran aparte.
+		ScreenEvents.AFTER_INIT.register((mc, screen, ancho, alto) -> {
+			if (!(screen instanceof AbstractContainerScreen<?>) || screen instanceof CreativeModeInventoryScreen) return;
+			ScreenKeyboardEvents.afterKeyPress(screen).register((s, evento) -> {
+				if (escribiendo(s)) return;
+				for (int i = 0; i < atajos.length; i++) if (atajos[i].matches(evento)) alternar(mc, i);
+			});
+		});
+	}
+
+	private static KeyMapping registrar(String nombre, int tecla) {
+		return KeyMappingHelper.registerKeyMapping(new KeyMapping(nombre, InputConstants.Type.KEYSYM, tecla, KeyMapping.Category.MISC));
+	}
+
+	/** Si estás escribiendo en una caja de texto (p. ej. el buscador del libro de recetas): ahí las teclas son letras. */
+	private static boolean escribiendo(Screen s) {
+		GuiEventListener f = s.getFocused();
+		while (f instanceof ContainerEventHandler c && c.getFocused() != null) f = c.getFocused();
+		return f instanceof EditBox;
+	}
+
+	private void alternar(Minecraft mc, int i) {
+		String[] nombres = {"Crafteo", "Subasta (/ah)", "Sell (/sell)"};
+		boolean v = switch (i) {
+			case 0 -> activo = !activo;
+			case 1 -> vender = !vender;
+			default -> sell.activo = !sell.activo;
+		};
+		guardar();
+		if (mc.player != null) aviso(mc, nombres[i] + ": " + (v ? "ON" : "OFF"));
 	}
 
 	/** Se llama cada tick: rellena en cuanto puede y saca un resultado cada {@code intervalo} ticks. */

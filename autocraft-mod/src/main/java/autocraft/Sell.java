@@ -21,7 +21,8 @@ import java.util.Set;
 class Sell {
 	boolean activo = false;
 	String comando = "sell";
-	boolean todo = false; // true: todo el inventario principal (la barra rápida nunca); false: solo los elegidos
+	boolean todo = false; // true: todo el inventario; false: solo los elegidos
+	boolean barra = false; // si también se vende lo que hay en la barra rápida
 	final Set<String> elegidos = new LinkedHashSet<>();
 	int segundos = 1; // entre ventas (mínimo 1: más rápido, el servidor te echa por spam de comandos)
 	int ticksEntreClics = 1; // 0 = todos los clics de golpe
@@ -107,10 +108,10 @@ class Sell {
 		ticks = 0;
 	}
 
-	/** Barra rápida (0-8) solo si eliges el objeto; inventario principal (9-35) también con "todo". Encantados no. */
+	/** Inventario principal (9-35) y, si se elige, la barra rápida (0-8). En "solo los elegidos", encantados no. */
 	private boolean seVende(int indice, ItemStack s) {
-		if (s.isEmpty()) return false;
-		if (todo) return indice >= 9;
+		if (s.isEmpty() || (indice < 9 && !barra)) return false;
+		if (todo) return true;
 		return elegidos.contains(AutoCraft.clave(s.getItem())) && !s.isEnchanted();
 	}
 
@@ -138,6 +139,7 @@ class Sell {
 		activo = Boolean.parseBoolean(p.getProperty("sell.activo", "false"));
 		comando = p.getProperty("sell.comando", comando);
 		todo = Boolean.parseBoolean(p.getProperty("sell.todo", "false"));
+		barra = Boolean.parseBoolean(p.getProperty("sell.barra", "false"));
 		segundos = Math.max(1, Integer.parseInt(p.getProperty("sell.segundos", "1")));
 		ticksEntreClics = Math.clamp(Integer.parseInt(p.getProperty("sell.ticksEntreClics", "1")), 0, 20);
 		elegidos.clear();
@@ -148,6 +150,7 @@ class Sell {
 		p.setProperty("sell.activo", String.valueOf(activo));
 		p.setProperty("sell.comando", comando);
 		p.setProperty("sell.todo", String.valueOf(todo));
+		p.setProperty("sell.barra", String.valueOf(barra));
 		p.setProperty("sell.segundos", String.valueOf(segundos));
 		p.setProperty("sell.ticksEntreClics", String.valueOf(ticksEntreClics));
 		p.setProperty("sell.elegidos", String.join(",", elegidos));
